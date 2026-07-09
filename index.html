@@ -1,168 +1,224 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Descargador de Videos y Fotos</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background-color: #1e1e2f; 
-            color: #ffffff;
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            min-height: 100vh; 
-            padding: 20px;
-        }
-        .container { 
-            background: #2a2a40; 
-            padding: 40px; 
-            border-radius: 12px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
-            text-align: center; 
-            width: 100%; 
-            max-width: 500px; 
-        }
-        h1 { margin-bottom: 10px; font-size: 28px; }
-        p.subtitle { margin-bottom: 25px; color: #a0a0b5; font-size: 14px; }
-        input { 
-            width: 100%; padding: 15px; margin-bottom: 15px; 
-            border: 1px solid #444466; border-radius: 8px; 
-            background-color: #1e1e2f; color: white; font-size: 16px; outline: none;
-        }
-        input:focus { border-color: #007bff; }
-        button { 
-            background-color: #007bff; color: white; border: none; 
-            padding: 15px; font-size: 16px; border-radius: 8px; 
-            cursor: pointer; transition: 0.3s; width: 100%; font-weight: bold;
-        }
-        button:hover { background-color: #0056b3; }
-        button:disabled { background-color: #555; cursor: not-allowed; }
-        
-        #estado { margin-top: 15px; font-size: 14px; height: 20px; }
-        .success { color: #4CAF50; }
-        .error { color: #ff4d4d; }
-        
-        /* Panel de opciones tras el análisis */
-        .info-panel {
-            background-color: #1e1e2f;
-            border-radius: 8px;
-            padding: 20px;
-            margin-top: 20px;
-            display: none;
-            text-align: left;
-        }
-        .info-panel h3 { font-size: 16px; margin-bottom: 5px; color: #e0e0e0; }
-        .info-panel p { font-size: 13px; color: #8888a0; margin-bottom: 15px; }
-        .btn-group { display: flex; flex-direction: column; gap: 10px; }
-        
-        .btn-green { background-color: #4CAF50; }
-        .btn-green:hover { background-color: #45a049; }
-        .btn-orange { background-color: #ff9800; }
-        .btn-orange:hover { background-color: #e68a00; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Descargador Pro</title>
+<style>
+  :root {
+    --bg: #0d0d12;
+    --card: #17171f;
+    --card-2: #1f1f29;
+    --border: #2a2a38;
+    --text: #f5f5f7;
+    --muted: #9a9aae;
+    --accent: #ff2d55;
+    --accent-2: #ff4081;
+    --success: #34c759;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .container { width: 100%; max-width: 560px; }
+  .card {
+    background: linear-gradient(145deg, var(--card), var(--card-2));
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 40px 32px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .logo { text-align: center; margin-bottom: 8px; }
+  .logo h1 {
+    font-size: 28px; font-weight: 800;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle { text-align: center; color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  .input-row { display: flex; gap: 10px; margin-bottom: 20px; }
+  input[type="text"] {
+    flex: 1; background: #0a0a0f; border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px 18px; color: var(--text);
+    font-size: 15px; outline: none; transition: border-color .2s;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  input[type="text"]::placeholder { color: #5a5a6e; }
+  .btn {
+    border: none; border-radius: 14px; padding: 14px 22px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: transform .1s, opacity .2s; color: #fff; white-space: nowrap;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  .btn-video { background: linear-gradient(90deg, #5856d6, #007aff); }
+  .btn-audio { background: linear-gradient(90deg, var(--success), #30b0c7); }
+  .status { text-align: center; color: var(--muted); font-size: 14px; min-height: 20px; }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .7s linear infinite;
+    vertical-align: -2px; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-box {
+    background: rgba(255,45,85,0.12); border: 1px solid rgba(255,45,85,0.4);
+    color: #ff8a9b; padding: 14px 18px; border-radius: 14px;
+    font-size: 14px; margin-bottom: 20px; word-break: break-word;
+  }
+  .info-box {
+    background: rgba(255,149,0,0.10); border: 1px solid rgba(255,149,0,0.35);
+    color: #ffb340; padding: 14px 18px; border-radius: 14px;
+    font-size: 13px; margin-bottom: 16px; line-height: 1.5;
+  }
+  .result {
+    display: none; background: #0a0a0f; border: 1px solid var(--border);
+    border-radius: 18px; padding: 22px; margin-bottom: 20px;
+  }
+  .result.show { display: block; }
+  .badge {
+    display: inline-block; font-size: 12px; font-weight: 700;
+    padding: 4px 12px; border-radius: 20px; margin-bottom: 12px;
+  }
+  .badge-carousel { background: rgba(255,149,0,0.2); color: #ffb340; }
+  .badge-video { background: rgba(0,122,255,0.2); color: #5ab0ff; }
+  .result .title { font-size: 16px; font-weight: 600; line-height: 1.4; margin-bottom: 4px; }
+  .result .author { color: var(--muted); font-size: 14px; margin-bottom: 8px; }
+  .result .meta { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .actions { display: flex; flex-direction: column; gap: 10px; }
+  .hint { text-align: center; color: #5a5a6e; font-size: 12px; margin-top: 24px; }
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>Descargador Pro</h1>
-        <p class="subtitle">Soporta videos normales y carruseles de fotos</p>
-        
-        <input type="text" id="urlInput" placeholder="Pega el enlace aquí...">
-        <button id="btnAnalizar" onclick="analizarEnlace()">Analizar Enlace</button>
-        <div id="estado"></div>
+  <div class="container">
+    <div class="card">
+      <div class="logo"><h1>Descargador Pro</h1></div>
+      <p class="subtitle">Descarga videos y audio de TikTok</p>
 
-        <div id="panelOpciones" class="info-panel">
-            <h3 id="txtTitulo">Título...</h3>
-            <p id="txtAutor">Autor...</p>
-            <div id="botonesDinamicos" class="btn-group">
-                <!-- Los botones se insertan aquí mediante JavaScript -->
-            </div>
-        </div>
+      <div class="input-row">
+        <input type="text" id="url" placeholder="Pega el enlace de TikTok aquí..." />
+        <button class="btn btn-primary" id="analyzeBtn" onclick="analyze()">Analizar</button>
+      </div>
+
+      <div class="status" id="status"></div>
+      <div class="error-box" id="errorBox" style="display:none;"></div>
+
+      <div class="result" id="result">
+        <span class="badge" id="badge"></span>
+        <div class="title" id="title"></div>
+        <div class="author" id="author"></div>
+        <div class="meta" id="meta"></div>
+        <div id="noticeCarousel"></div>
+        <div class="actions" id="actions"></div>
+      </div>
+
+      <p class="hint">Pega el enlace largo o el corto (vt.tiktok.com/...).</p>
     </div>
+  </div>
 
-    <script>
-        let urlGlobal = "";
+<script>
+const $ = id => document.getElementById(id);
+let currentUrl = '';
 
-        async function analizarEnlace() {
-            const url = document.getElementById('urlInput').value;
-            const estadoDiv = document.getElementById('estado');
-            const panelOpciones = document.getElementById('panelOpciones');
-            const btnAnalizar = document.getElementById('btnAnalizar');
+function setStatus(html) { $('status').innerHTML = html; }
+function showError(msg, detalle) {
+  $('errorBox').style.display = 'block';
+  $('errorBox').innerHTML = msg + (detalle ? '<br><span style="opacity:.7;font-size:13px;">' + detalle + '</span>' : '');
+}
+function clearError() { $('errorBox').style.display = 'none'; }
+function hideResult() { $('result').classList.remove('show'); }
 
-            if (!url) {
-                estadoDiv.innerHTML = '<span class="error">Por favor, ingresa un enlace.</span>';
-                return;
-            }
+async function analyze() {
+  const url = $('url').value.trim();
+  if (!url) return;
+  currentUrl = url;
+  clearError();
+  hideResult();
+  $('analyzeBtn').disabled = true;
+  setStatus('<span class="spinner"></span>Analizando enlace...');
 
-            urlGlobal = url;
-            btnAnalizar.disabled = true;
-            panelOpciones.style.display = 'none';
-            estadoDiv.innerHTML = '<span style="color:#a0a0b5;">Escaneando publicación... esto puede tardar unos segundos.</span>';
+  try {
+    const resp = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await resp.json();
+    setStatus('');
 
-            try {
-                const respuesta = await fetch('http://localhost:3000/api/analyze', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: url })
-                });
-                
-                const data = await respuesta.json();
+    if (!resp.ok) return showError(data.error || 'Error desconocido.', data.detalle);
+    renderResult(data);
+  } catch (e) {
+    setStatus('');
+    showError('No se pudo conectar con el servidor. ¿Está corriendo node server.js?');
+  } finally {
+    $('analyzeBtn').disabled = false;
+  }
+}
 
-                if (data.error) {
-                    const extra = data.detalle ? ` (${data.detalle})` : '';
-                    estadoDiv.innerHTML = `<span class="error">${data.error}${extra}</span>`;
-                } else {
-                    estadoDiv.innerHTML = '<span class="success">¡Análisis completado!</span>';
-                    mostrarOpciones(data);
-                }
-            } catch (error) {
-                estadoDiv.innerHTML = '<span class="error">Error de conexión con el servidor.</span>';
-            } finally {
-                btnAnalizar.disabled = false;
-            }
-        }
+function renderResult(data) {
+  const badge = $('badge');
+  const actions = $('actions');
+  const notice = $('noticeCarousel');
+  actions.innerHTML = '';
+  notice.innerHTML = '';
 
-        function mostrarOpciones(data) {
-            document.getElementById('txtTitulo').innerText = data.titulo;
-            document.getElementById('txtAutor').innerText = "Por: " + data.autor;
-            
-            const contenedorBotones = document.getElementById('botonesDinamicos');
-            contenedorBotones.innerHTML = "";
+  if (data.esCarrusel) {
+    badge.className = 'badge badge-carousel';
+    badge.textContent = '🖼️ Carrusel de fotos';
+    $('meta').textContent = 'Publicación con múltiples imágenes';
 
-            if (data.esCarrusel) {
-                contenedorBotones.innerHTML = `
-                    <p style="color:#a0a0b5;font-size:12px;margin-bottom:5px;">📸 ${data.cantidad} elementos detectados</p>
-                    <button class="btn-orange" onclick="descargarComoZip()">🖼️ Descargar Fotos (ZIP)</button>
-                    <button class="btn-orange" onclick="descargarSlideshow()">🎬 Convertir a Video (MP4)</button>
-                `;
-            } else {
-                contenedorBotones.innerHTML = `
-                    <button class="btn-green" onclick="descargarVideoNormal()">⬇️ Descargar Video (MP4)</button>
-                `;
-            }
+    // Aviso honesto sobre la limitación de TikTok.
+    notice.innerHTML = `<div class="info-box">
+      ⚠️ TikTok bloquea la descarga de las <b>fotos</b> de los carruseles (verificado: ni la web, ni yt-dlp, ni un navegador automatizado logran extraerlas hoy).
+      Lo que <b>sí</b> se puede descargar es el <b>audio</b> del carrusel.
+    </div>`;
 
-            document.getElementById('panelOpciones').style.display = 'block';
-        }
+    if (data.puedeAudio) {
+      actions.innerHTML = `
+        <button class="btn btn-audio" onclick="download('/api/download-audio?url=' + encodeURIComponent(currentUrl), this)">
+          🎵 Descargar Audio (MP3)
+        </button>`;
+    } else {
+      actions.innerHTML = `<div style="color:var(--muted);font-size:14px;">No hay audio disponible para esta publicación.</div>`;
+    }
+  } else {
+    badge.className = 'badge badge-video';
+    badge.textContent = '🎥 Video';
+    $('meta').textContent = 'Video de TikTok';
+    actions.innerHTML = `
+      <button class="btn btn-video" onclick="download('/api/download-video?url=' + encodeURIComponent(currentUrl), this)">
+        ⬇️ Descargar Video (MP4)
+      </button>`;
+  }
 
-        function descargarVideoNormal() {
-            const estadoDiv = document.getElementById('estado');
-            estadoDiv.innerHTML = '<span class="success">Iniciando descarga...</span>';
-            window.location.href = `http://localhost:3000/api/download-video?url=${encodeURIComponent(urlGlobal)}`;
-        }
+  $('title').textContent = data.titulo || 'Publicación de TikTok';
+  $('author').textContent = data.autor || '';
+  $('result').classList.add('show');
+}
 
-        function descargarComoZip() {
-            const estadoDiv = document.getElementById('estado');
-            estadoDiv.innerHTML = '<span class="success">Empaquetando fotos en ZIP...</span>';
-            window.location.href = `http://localhost:3000/api/download-images?url=${encodeURIComponent(urlGlobal)}`;
-        }
+function download(url, btn) {
+  const originalText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Preparando...';
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => { btn.disabled = false; btn.innerHTML = originalText; }, 4000);
+}
 
-        function descargarSlideshow() {
-            const estadoDiv = document.getElementById('estado');
-            estadoDiv.innerHTML = '<span style="color:#a0a0b5;">Generando video con audio... esto puede tardar un poco.</span>';
-            window.location.href = `http://localhost:3000/api/download-slideshow?url=${encodeURIComponent(urlGlobal)}`;
-        }
-    </script>
+$('url').addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+</script>
 </body>
 </html>
