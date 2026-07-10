@@ -217,8 +217,13 @@ app.post('/api/analyze', async (req, res) => {
 
     const { code, stdout, stderr } = await runYtdlp(['--dump-json', '--no-warnings', ytdlpUrl]);
     if (code !== 0) {
-        const detalle = stderr.split('\n').filter(l => l.trim())[0] || 'Error desconocido';
-        return res.status(500).json({ error: "No se pudo analizar el enlace.", detalle });
+        // Logueamos el detalle técnico solo en el servidor
+        console.error('[analyze] yt-dlp falló:', stderr.trim());
+        // Devolvemos un mensaje limpio al usuario
+        return res.status(500).json({
+            error: "No se pudo analizar el enlace.",
+            detalle: "Verificá que el enlace sea válido y público. Si es un enlace corto, esperá unos segundos y volvé a intentar."
+        });
     }
 
     try {
