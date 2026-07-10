@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { spawn, execFile } = require('child_process');
+const fs = require('fs'); // Añadido para verificar el archivo cookies.txt localmente
 const https = require('https');
 const http = require('http');
 const path = require('path');
@@ -214,7 +215,13 @@ app.post('/api/analyze', async (req, res) => {
     // Para TikTok, reescribimos /photo/ -> /video/ porque el extractor no acepta /photo/
     const ytdlpUrl = isTiktokUrl(safeUrl) ? safeUrl.replace('/photo/', '/video/') : safeUrl;
 
-    const { code, stdout, stderr } = await runYtdlp(['--dump-json', '--no-warnings', ytdlpUrl]);
+    // Lógica inteligente de Cookies añadida aquí
+    const argsAnalyze = fs.existsSync('cookies.txt') 
+        ? ['--dump-json', '--no-warnings', '--cookies', 'cookies.txt', ytdlpUrl] 
+        : ['--dump-json', '--no-warnings', ytdlpUrl];
+
+    const { code, stdout, stderr } = await runYtdlp(argsAnalyze);
+    
     if (code !== 0) {
         const detalle = stderr.split('\n').filter(l => l.trim())[0] || 'Error desconocido';
         return res.status(500).json({ error: "No se pudo analizar el enlace.", detalle });
@@ -252,9 +259,6 @@ app.post('/api/analyze', async (req, res) => {
 });
 
 // Descarga un archivo (video o audio) según el formato seleccionado.
-// Estrategia: descarga a archivo temporal en /tmp, luego lo envía como stream
-// al navegador. Esto permite que yt-dlp haga mux (video + audio) y conversión
-// de formato correctamente, algo imposible con pipe a stdout (-o -).
 app.get('/api/download', async (req, res) => {
     const safeUrl = await resolveUrl(req.query.url);
     if (!safeUrl) return res.status(400).send("Falta la URL");
@@ -266,38 +270,37 @@ app.get('/api/download', async (req, res) => {
 
     const ytdlpUrl = isTiktokUrl(safeUrl) ? safeUrl.replace('/photo/', '/video/') : safeUrl;
 
-    // Determinar si se necesita mux (combinar video + audio por separado)
-    // Esto ocurre cuando se pide un formato DASH de solo video
     const necesitaMux = tipo === 'video' && formatId !== 'best';
 
-    // Construir argumentos de formato para yt-dlp
     let formatArg;
     if (formatId === 'best') {
-        // Mejor calidad: preferir MP4 pre-combinado, sino combinamos
         formatArg = tipo === 'audio' ? 'bestaudio[ext=m4a]/bestaudio/best' : 'bv*[ext=mp4]+ba[ext=m4a]/bv+ba/b[ext=mp4]/bv+ba/b';
     } else if (necesitaMux) {
-        // Formato específico de solo video: combinar con mejor audio
         formatArg = `${formatId}+ba/b[ext=mp4]/b`;
     } else {
         formatArg = formatId;
     }
 
-    // Archivo temporal único para esta descarga
     const tmpId = Date.now() + '_' + Math.random().toString(36).substring(2, 8);
     const tmpDir = require('os').tmpdir();
     const tmpFile = path.join(tmpDir, `descargador_${tmpId}.mp4`);
 
+    // Lógica inteligente de Cookies añadida a los argumentos de descarga
     const args = [
         '-f', formatArg,
         '--merge-output-format', 'mp4',
         '-o', tmpFile,
         '--no-warnings',
-        '--no-mtime',
-        ytdlpUrl,
+        '--no-mtime'
     ];
 
+    if (fs.existsSync('cookies.txt')) {
+        args.push('--cookies', 'cookies.txt');
+    }
+    
+    args.push(ytdlpUrl);
+
     try {
-        // Ejecutar yt-dlp y esperar a que termine
         await new Promise((resolve, reject) => {
             const ytdlp = spawn('yt-dlp', args);
             let stderrData = '';
@@ -309,14 +312,12 @@ app.get('/api/download', async (req, res) => {
             ytdlp.on('error', reject);
         });
 
-        // Verificar que el archivo existe y tiene contenido
-        const fs = require('fs');
+        // La declaración duplicada de "fs" fue eliminada aquí para evitar conflictos con la cabecera
         const stat = fs.statSync(tmpFile);
         if (!stat || stat.size === 0) {
             return res.status(500).send("El archivo descargado está vacío.");
         }
 
-        // Enviar el archivo al navegador
         const mimeTypes = {
             'mp4': 'video/mp4',
             'webm': 'video/webm',
@@ -340,7 +341,6 @@ app.get('/api/download', async (req, res) => {
         const readStream = fs.createReadStream(tmpFile);
         readStream.pipe(res);
 
-        // Limpiar el archivo temporal después de enviarlo
         readStream.on('end', () => {
             try { fs.unlinkSync(tmpFile); } catch (_) {}
         });
@@ -349,8 +349,7 @@ app.get('/api/download', async (req, res) => {
             if (!res.headersSent) res.status(500).send("Error enviando el archivo.");
         });
     } catch (err) {
-        // Limpiar archivo temporal si algo salió mal
-        try { require('fs').unlinkSync(tmpFile); } catch (_) {}
+        try { fs.unlinkSync(tmpFile); } catch (_) {}
         if (!res.headersSent) {
             res.status(500).send(err.message || "No se pudo descargar el archivo.");
         }
