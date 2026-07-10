@@ -74,9 +74,18 @@ async function resolveUrl(inputUrl) {
 }
 
 // Ejecuta yt-dlp devolviendo { code, stdout, stderr }.
-function runYtdlp(args) {
+// Acepta opts.extraArgs para agregar flags (ej. cookies, extractor args)
+function runYtdlp(args, opts = {}) {
     return new Promise((resolve) => {
-        const child = execFile('yt-dlp', args, { maxBuffer: 1024 * 1024 * 50, timeout: 60000 }, (error, stdout, stderr) => {
+        const baseArgs = [
+            // Forzar un cliente alterno de YouTube: evita "Sign in to confirm you're not a bot"
+            // cuando yt-dlp corre en servidores cloud como Render.
+            '--extractor-args', 'youtube:player_client=tv,web_safari,web_embedded,android_vr',
+            // User-Agent realista: el default de yt-dlp a veces es bloqueado
+            '--user-agent', USER_AGENT,
+        ];
+        const finalArgs = baseArgs.concat(args, opts.extraArgs || []);
+        execFile('yt-dlp', finalArgs, { maxBuffer: 1024 * 1024 * 50, timeout: 90000 }, (error, stdout, stderr) => {
             // Si el binario no existe, execFile emite ENOENT — lo distinguimos
             if (error && error.code === 'ENOENT') {
                 return resolve({ code: 127, stdout: '', stderr: 'yt-dlp no está instalado en el servidor. Revisá el Dockerfile.' });
@@ -303,6 +312,9 @@ app.get('/api/download', async (req, res) => {
         '-o', tmpFile,
         '--no-warnings',
         '--no-mtime',
+        // Mismo fix de cliente alterno que en analyze
+        '--extractor-args', 'youtube:player_client=tv,web_safari,web_embedded,android_vr',
+        '--user-agent', USER_AGENT,
         ytdlpUrl,
     ];
 
