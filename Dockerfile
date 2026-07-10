@@ -1,17 +1,21 @@
 # 1. Usar Linux con Node.js preinstalado
 FROM node:18-bullseye-slim
 
-# 2. Instalar FFmpeg, Python y curl
+# 2. Instalar FFmpeg, Python (con venv), pip y curl
+#    python3-venv es un paquete separado en Debian y necesario para crear el venv
+#    DEBIAN_FRONTEND=noninteractive evita que debconf pida input y cuelgue el build
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
+    python3-venv \
+    python3-pip \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Instalar yt-dlp desde PyPI sin usar --break-system-packages
-#    (pip en bullseye es viejo y no soporta esa opción).
-#    Se instala en un virtualenv y se hace symlink a /usr/local/bin
+# 3. Instalar yt-dlp en un virtualenv (sin usar --break-system-packages,
+#    que pip 20.x de bullseye no soporta)
 RUN python3 -m venv /opt/yt-dlp-venv \
     && /opt/yt-dlp-venv/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/yt-dlp-venv/bin/pip install --no-cache-dir "yt-dlp>=2025.01.01" \
