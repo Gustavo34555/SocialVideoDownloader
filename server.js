@@ -76,7 +76,11 @@ async function resolveUrl(inputUrl) {
 // Ejecuta yt-dlp devolviendo { code, stdout, stderr }.
 function runYtdlp(args) {
     return new Promise((resolve) => {
-        execFile('yt-dlp', args, { maxBuffer: 1024 * 1024 * 50 }, (error, stdout, stderr) => {
+        const child = execFile('yt-dlp', args, { maxBuffer: 1024 * 1024 * 50, timeout: 60000 }, (error, stdout, stderr) => {
+            // Si el binario no existe, execFile emite ENOENT — lo distinguimos
+            if (error && error.code === 'ENOENT') {
+                return resolve({ code: 127, stdout: '', stderr: 'yt-dlp no está instalado en el servidor. Revisá el Dockerfile.' });
+            }
             resolve({ code: error ? (error.code || 1) : 0, stdout: stdout || '', stderr: (stderr || '') + (error ? error.message : '') });
         });
     });
@@ -364,4 +368,17 @@ app.get('/api/download', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Servidor activo en el puerto ${PORT}`));
+
+// Health check (Render lo usa para saber si el servicio está vivo)
+app.get('/healthz', (req, res) => res.json({ ok: true, port: PORT }));
+
+// Verificamos yt-dlp al arrancar y lo logueamos
+execFile('yt-dlp', ['--version'], { timeout: 10000 }, (err, stdout) => {
+    if (err) {
+        console.error('[startup] yt-dlp NO está disponible:', err.message);
+    } else {
+        console.log('[startup] yt-dlp OK, versión:', (stdout || '').trim());
+    }
+});
+
+app.listen(PORT, '0.0.0.0', () => console.log(`[startup] Servidor activo en el puerto ${PORT}`));
