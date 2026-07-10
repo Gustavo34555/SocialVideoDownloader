@@ -8,18 +8,18 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Descargar e instalar la última versión de yt-dlp
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+# 3. Descargar e instalar la versión NIGHTLY de yt-dlp (parches contra bloqueos)
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/download/nightly/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 # 4. Crear la carpeta donde vivirá tu código
 WORKDIR /app
 
-# 5. Copiar los archivos de configuración e instalar librerías (Express, Cors, Archiver)
+# 5. Copiar los archivos de configuración e instalar dependencias
 COPY package*.json ./
 RUN npm install
 
-# 6. Copiar el resto de tu código (server.js, index.html)
+# 6. Copiar el resto de tu código
 COPY . .
 
 # 7. Exponer el puerto
