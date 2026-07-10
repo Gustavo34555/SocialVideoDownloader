@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: descargador-videos
+    runtime: docker
+    plan: free
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        sync: false
