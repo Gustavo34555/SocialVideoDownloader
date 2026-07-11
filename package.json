@@ -1,23 +1,17 @@
 {
   "name": "descargador-videos",
   "version": "1.0.0",
-  "description": "",
+  "description": "Descargador universal con yt-dlp",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "engines": {
-    "node": ">=18.0.0"
+    "dev": "node server.js"
   },
   "dependencies": {
-    "archiver": "^7.0.1",
-    "cors": "^2.8.6",
-    "express": "^5.2.1"
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

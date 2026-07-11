@@ -6,41 +6,22 @@
 <title>Descargador Pro</title>
 <style>
   :root {
-    --bg: #0d0d12;
-    --card: #17171f;
-    --card-2: #1f1f29;
-    --border: #2a2a38;
-    --text: #f5f5f7;
-    --muted: #9a9aae;
-    --accent: #ff2d55;
-    --accent-2: #ff4081;
-    --success: #34c759;
-    --youtube: #ff0000;
-    --tiktok: #ff2d55;
-    --instagram: #e1306c;
-    --facebook: #1877f2;
-    --twitter: #1da1f2;
-    --reddit: #ff4500;
-    --twitch: #9146ff;
+    --bg: #0d0d12; --card: #17171f; --card-2: #1f1f29;
+    --border: #2a2a38; --text: #f5f5f7; --muted: #9a9aae;
+    --accent: #ff2d55; --accent-2: #ff4081; --success: #34c759;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
     padding: 20px;
   }
   .container { width: 100%; max-width: 580px; }
   .card {
     background: linear-gradient(145deg, var(--card), var(--card-2));
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    padding: 36px 28px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    border: 1px solid var(--border); border-radius: 24px;
+    padding: 36px 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
   .logo { text-align: center; margin-bottom: 6px; }
   .logo h1 {
@@ -76,408 +57,139 @@
     font-size: 12px; color: var(--muted); background: #0a0a0f;
     padding: 4px 10px; border-radius: 10px; border: 1px solid var(--border);
   }
-  .status { text-align: center; color: var(--muted); font-size: 14px; min-height: 20px; }
+  .status { text-align: center; color: var(--muted); font-size: 14px; min-height: 20px; margin-top: 12px; }
   .spinner {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid var(--border); border-top-color: var(--accent);
-    border-radius: 50%; animation: spin .7s linear infinite;
-    vertical-align: -2px; margin-right: 6px;
+    border-radius: 50%; animation: spin 1s linear infinite; margin-right: 8px;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .error-box {
-    background: rgba(255,45,85,0.12); border: 1px solid rgba(255,45,85,0.4);
-    color: #ff8a9b; padding: 14px 18px; border-radius: 14px;
-    font-size: 14px; margin-bottom: 20px; word-break: break-word;
+  .options {
+    display: flex; gap: 10px; margin-bottom: 14px; justify-content: center;
   }
-  .info-box {
-    background: rgba(255,149,0,0.10); border: 1px solid rgba(255,149,0,0.35);
-    color: #ffb340; padding: 14px 18px; border-radius: 14px;
-    font-size: 13px; margin-bottom: 16px; line-height: 1.5;
+  .options label {
+    font-size: 13px; color: var(--muted); cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
   }
-
-  /* Resultado */
-  .result {
-    display: none; background: #0a0a0f; border: 1px solid var(--border);
-    border-radius: 18px; padding: 22px; margin-bottom: 20px;
+  .options input[type="radio"] { accent-color: var(--accent); cursor: pointer; }
+  .preview {
+    margin-top: 16px; padding: 16px; background: #0a0a0f;
+    border-radius: 14px; border: 1px solid var(--border); display: none;
   }
-  .result.show { display: block; }
-  .result-header { display: flex; gap: 16px; margin-bottom: 16px; }
-  .result-thumb {
-    width: 120px; min-width: 120px; height: 90px; border-radius: 12px;
-    object-fit: cover; background: var(--card);
-  }
-  .result-info { flex: 1; min-width: 0; }
-  .result-info .title {
-    font-size: 15px; font-weight: 600; line-height: 1.35;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; margin-bottom: 4px; word-break: break-word;
-  }
-  .result-info .author { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
-  .result-info .duration { color: var(--muted); font-size: 12px; }
-  .badge {
-    display: inline-block; font-size: 11px; font-weight: 700;
-    padding: 3px 10px; border-radius: 10px; margin-bottom: 14px;
-  }
-  .badge-youtube { background: rgba(255,0,0,0.18); color: #ff5252; }
-  .badge-tiktok { background: rgba(255,45,85,0.18); color: #ff6b8a; }
-  .badge-instagram { background: rgba(225,48,108,0.18); color: #e86daa; }
-  .badge-facebook { background: rgba(24,119,242,0.18); color: #5a9cf5; }
-  .badge-twitter { background: rgba(29,161,242,0.18); color: #5ab8ff; }
-  .badge-reddit { background: rgba(255,69,0,0.18); color: #ff7b47; }
-  .badge-twitch { background: rgba(145,70,255,0.18); color: #b388ff; }
-  .badge-default { background: rgba(255,255,255,0.1); color: var(--muted); }
-  .badge-carousel { background: rgba(255,149,0,0.2); color: #ffb340; }
-  .badge-audio { background: rgba(52,199,89,0.18); color: #34c759; }
-
-  /* Toggle tipo Video / Audio */
-  .type-toggle {
-    display: flex; background: #12121a; border-radius: 12px;
-    border: 1px solid var(--border); overflow: hidden; margin-bottom: 14px;
-  }
-  .type-toggle button {
-    flex: 1; padding: 10px 16px; border: none; background: transparent;
-    color: var(--muted); font-size: 14px; font-weight: 600;
-    cursor: pointer; transition: all .2s;
-  }
-  .type-toggle button.active {
-    background: linear-gradient(90deg, var(--accent), var(--accent-2));
-    color: #fff;
-  }
-  .type-toggle button:not(.active):hover {
-    background: rgba(255,255,255,0.05);
-    color: var(--text);
-  }
-  .type-toggle button:disabled { opacity: 0.3; cursor: not-allowed; }
-
-  /* Selector de calidad */
-  .selector-group { margin-bottom: 14px; }
-  .selector-group label {
-    display: block; font-size: 12px; font-weight: 600;
-    color: var(--muted); margin-bottom: 6px; text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  select {
-    width: 100%; background: #12121a; border: 1px solid var(--border);
-    border-radius: 12px; padding: 10px 14px; color: var(--text);
-    font-size: 14px; outline: none; cursor: pointer;
-    appearance: none; -webkit-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239a9aae' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-  }
-  select:focus { border-color: var(--accent); }
-
-  .format-note {
-    font-size: 12px; color: var(--muted); margin-bottom: 14px; min-height: 16px;
-  }
-  .format-note.mux { color: #5ab8ff; }
-
-  .actions { margin-top: 4px; }
-  .hint { text-align: center; color: #5a5a6e; font-size: 12px; margin-top: 20px; }
+  .preview img { width: 100%; border-radius: 10px; margin-bottom: 10px; }
+  .preview h3 { font-size: 15px; margin-bottom: 4px; }
+  .preview p { font-size: 13px; color: var(--muted); }
+  .error { color: #ff453a; }
+  .success { color: var(--success); }
 </style>
 </head>
 <body>
-  <div class="container">
-    <div class="card">
-      <div class="logo"><h1>Descargador Pro</h1></div>
-      <p class="subtitle">Descarga videos y audio de cualquier red social</p>
+<div class="container">
+  <div class="card">
+    <div class="logo"><h1>Descargador Pro</h1></div>
+    <div class="subtitle">Descarga videos y audio de cualquier red social</div>
 
-      <div class="input-row">
-        <input type="text" id="url" placeholder="Pega el enlace de YouTube, TikTok, Instagram..." />
-        <button class="btn btn-primary" id="analyzeBtn" onclick="analyze()">Analizar</button>
-      </div>
+    <div class="networks">
+      <span>YouTube</span><span>TikTok</span><span>Instagram</span>
+      <span>Facebook</span><span>X/Twitter</span><span>Reddit</span>
+      <span>Twitch</span><span>Vimeo</span><span>+100 más</span>
+    </div>
 
-      <div class="networks">
-        <span>📺 YouTube</span>
-        <span>🎵 TikTok</span>
-        <span>📸 Instagram</span>
-        <span>👤 Facebook</span>
-        <span>🐦 X (Twitter)</span>
-        <span>🟠 Reddit</span>
-        <span>🎮 Twitch</span>
-        <span>🎬 Vimeo</span>
-      </div>
+    <div class="input-row">
+      <input type="text" id="url" placeholder="Pega el enlace aquí..." autocomplete="off">
+      <button class="btn btn-primary" id="btnInfo" onclick="getInfo()">Ver info</button>
+    </div>
 
-      <div class="status" id="status"></div>
-      <div class="error-box" id="errorBox" style="display:none;"></div>
+    <div class="options">
+      <label><input type="radio" name="tipo" value="video" checked> Video</label>
+      <label><input type="radio" name="tipo" value="audio"> Audio MP3</label>
+    </div>
 
-      <div class="result" id="result">
-        <span class="badge" id="badge"></span>
-        <div class="result-header">
-          <img class="result-thumb" id="thumb" src="" alt="" style="display:none;" />
-          <div class="result-info">
-            <div class="title" id="title"></div>
-            <div class="author" id="author"></div>
-            <div class="duration" id="duration"></div>
-          </div>
-        </div>
-        <div id="noticeCarousel"></div>
-        <div class="type-toggle" id="typeToggle">
-          <button id="btnVideo" class="active" onclick="setTipo('video')">🎥 Video</button>
-          <button id="btnAudio" onclick="setTipo('audio')">🎵 Audio</button>
-        </div>
-        <div class="selector-group">
-          <label for="qualitySelect">Calidad / Formato</label>
-          <select id="qualitySelect"></select>
-        </div>
-        <div class="format-note" id="formatNote"></div>
-        <div class="actions">
-          <button class="btn btn-download" id="downloadBtn" onclick="startDownload()">
-            ⬇️ Descargar
-          </button>
-        </div>
-      </div>
+    <button class="btn btn-download" id="btnDownload" onclick="startDownload()">Descargar</button>
+    <div class="status" id="status"></div>
 
-      <p class="hint">Compatible con YouTube, TikTok, Instagram, Facebook, X, Reddit, Twitch, Vimeo y más. Brindo Brindo Brindo... yo la amaba.. </p>
+    <div class="preview" id="preview">
+      <img id="thumb" src="" alt="">
+      <h3 id="vtitle"></h3>
+      <p id="vinfo"></p>
     </div>
   </div>
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
+const statusEl = $('status');
 
-// Estado global
-let currentUrl = '';
-let currentData = null;
-let currentTipo = 'video';
-
-// Colores de badge por plataforma
-const platformBadgeClass = {
-  'YouTube': 'badge-youtube',
-  'TikTok': 'badge-tiktok',
-  'Instagram': 'badge-instagram',
-  'Facebook': 'badge-facebook',
-  'X (Twitter)': 'badge-twitter',
-  'Twitter': 'badge-twitter',
-  'Reddit': 'badge-reddit',
-  'Twitch': 'badge-twitch',
-};
-
-const platformIcons = {
-  'YouTube': '📺',
-  'TikTok': '🎵',
-  'Instagram': '📸',
-  'Facebook': '👤',
-  'X (Twitter)': '🐦',
-  'Twitter': '🐦',
-  'Reddit': '🟠',
-  'Twitch': '🎮',
-  'Vimeo': '🎬',
-  'Dailymotion': '🎬',
-  'Pinterest': '📌',
-  'SoundCloud': '🎧',
-};
-
-function setStatus(html) { $('status').innerHTML = html; }
-function showError(msg, detalle) {
-  $('errorBox').style.display = 'block';
-  $('errorBox').innerHTML = msg + (detalle ? '<br><span style="opacity:.7;font-size:13px;">' + detalle + '</span>' : '');
-}
-function clearError() { $('errorBox').style.display = 'none'; }
-function hideResult() { $('result').classList.remove('show'); }
-
-async function analyze() {
-  const url = $('url').value.trim();
-  if (!url) return;
-  currentUrl = url;
-  currentData = null;
-  currentTipo = 'video';
-  clearError();
-  hideResult();
-  $('analyzeBtn').disabled = true;
-  setStatus('<span class="spinner"></span>Analizando enlace...');
-
-  try {
-    const resp = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
-    });
-    const data = await resp.json();
-    setStatus('');
-
-    if (!resp.ok) return showError(data.error || 'Error desconocido.', data.detalle);
-    currentData = data;
-    renderResult(data);
-  } catch (e) {
-    setStatus('');
-    showError('No se pudo conectar con el servidor. ¿Está corriendo node server.js?');
-  } finally {
-    $('analyzeBtn').disabled = false;
-  }
+function setStatus(html, cls='') {
+    statusEl.innerHTML = html;
+    statusEl.className = 'status ' + cls;
 }
 
-function renderResult(data) {
-  // Badge de plataforma
-  const badge = $('badge');
-  const icon = platformIcons[data.plataforma] || '🌐';
-  const badgeClass = platformBadgeClass[data.plataforma] || 'badge-default';
-
-  if (data.esCarrusel) {
-    badge.className = 'badge badge-carousel';
-    badge.textContent = icon + ' Carrusel de fotos';
-  } else if (data.esAudio) {
-    badge.className = 'badge badge-audio';
-    badge.textContent = icon + ' Audio';
-  } else {
-    badge.className = 'badge ' + badgeClass;
-    badge.textContent = icon + ' ' + (data.plataforma || 'Video');
-  }
-
-  // Thumbnail
-  const thumb = $('thumb');
-  if (data.thumbnail) {
-    thumb.src = data.thumbnail;
-    thumb.style.display = 'block';
-  } else {
-    thumb.style.display = 'none';
-  }
-
-  // Metadata
-  $('title').textContent = data.titulo || 'Publicación';
-  $('author').textContent = data.autor || '';
-  $('duration').textContent = data.duracion || '';
-
-  // Aviso de carrusel
-  const notice = $('noticeCarousel');
-  notice.innerHTML = '';
-  if (data.esCarrusel) {
-    notice.innerHTML = '<div class="info-box">\n      ⚠️ TikTok bloquea la descarga de las <b>fotos</b> de los carruseles.\n      Lo que <b>sí</b> se puede descargar es el <b>audio</b> del carrusel.\n    </div>';
-  }
-
-  // Toggle tipo Video/Audio
-  $('btnVideo').disabled = !data.puedeVideo;
-  $('btnAudio').disabled = !data.puedeAudio;
-
-  if (data.esCarrusel) {
-    setTipo('audio');
-    $('btnVideo').disabled = true;
-  } else if (!data.puedeVideo && data.puedeAudio) {
-    setTipo('audio');
-  } else {
-    setTipo('video');
-  }
-
-  $('result').classList.add('show');
+function getTipo() {
+    return document.querySelector('input[name="tipo"]:checked').value;
 }
 
-function setTipo(tipo) {
-  currentTipo = tipo;
-  $('btnVideo').classList.toggle('active', tipo === 'video');
-  $('btnAudio').classList.toggle('active', tipo === 'audio');
-  updateQualityOptions();
-}
+async function getInfo() {
+    const url = $('url').value.trim();
+    if (!url) return setStatus('Pega una URL primero', 'error');
+    setStatus('<span class="spinner"></span> Analizando...');
+    $('btnInfo').disabled = true;
 
-function updateQualityOptions() {
-  const select = $('qualitySelect');
-  const note = $('formatNote');
-  select.innerHTML = '';
-  note.textContent = '';
-  note.className = 'format-note';
-
-  if (!currentData) return;
-
-  let formats;
-  if (currentTipo === 'video') {
-    formats = currentData.formatos_video || [];
-  } else {
-    formats = currentData.formatos_audio || [];
-  }
-
-  // Opción "Mejor calidad"
-  const optBest = document.createElement('option');
-  optBest.value = 'best';
-  optBest.textContent = '🏆 Mejor calidad disponible';
-  select.appendChild(optBest);
-
-  // Formatos individuales (ya ordenados del servidor)
-  formats.forEach(f => {
-    const opt = document.createElement('option');
-    opt.value = f.id;
-    // Usar etiqueta del servidor si existe, si no construirla aquí
-    opt.textContent = f.etiqueta || (f.calidad + (f.extension ? ' · ' + f.extension.toUpperCase() : '') + (f.tamano ? ' · ~' + f.tamano : ''));
-    opt.dataset.size = f.tamano || '';
-    opt.dataset.ext = f.extension || '';
-    opt.dataset.hasAudio = String(!!f.tieneAudio);
-    select.appendChild(opt);
-  });
-
-  select.value = 'best';
-  updateFormatNote();
-  select.onchange = updateFormatNote;
-}
-
-function updateFormatNote() {
-  const select = $('qualitySelect');
-  const note = $('formatNote');
-  const selected = select.selectedOptions[0];
-  if (!selected) { note.textContent = ''; return; }
-
-  if (selected.value === 'best') {
-    note.className = 'format-note';
-    if (currentTipo === 'video') {
-      note.textContent = 'Se seleccionará la mejor combinación de video + audio en MP4.';
-    } else {
-      note.textContent = 'Se seleccionará el mejor audio disponible en MP4.';
+    try {
+        const r = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
+        if (!r.ok) throw new Error((await r.json()).error);
+        const d = await r.json();
+        $('preview').style.display = 'block';
+        $('thumb').src = d.thumbnail || '';
+        $('vtitle').textContent = d.title || 'Sin título';
+        const m = Math.floor((d.duration||0)/60), s = String(Math.floor((d.duration||0)%60)).padStart(2,'0');
+        $('vinfo').textContent = `${d.platform} • ${d.uploader||'Unknown'} • ${m}:${s}`;
+        setStatus('Listo para descargar', 'success');
+    } catch (e) {
+        setStatus('Error: ' + e.message, 'error');
+        $('preview').style.display = 'none';
+    } finally {
+        $('btnInfo').disabled = false;
     }
-  } else if (selected.dataset.hasAudio === 'false' && currentTipo === 'video') {
-    note.className = 'format-note mux';
-    note.textContent = '📹 Formato de solo video. Se combinará automáticamente con el mejor audio disponible → MP4';
-  } else if (selected.dataset.size) {
-    note.className = 'format-note';
-    note.textContent = 'Tamaño estimado: ' + selected.dataset.size;
-  } else {
-    note.className = 'format-note';
-    note.textContent = '';
-  }
 }
 
-function startDownload() {
-  if (!currentUrl || !currentData) return;
+async function startDownload() {
+    const url = $('url').value.trim();
+    if (!url) return setStatus('Pega una URL primero', 'error');
+    setStatus('<span class="spinner"></span> Descargando...');
+    $('btnDownload').disabled = true;
 
-  const select = $('qualitySelect');
-  const selected = select.selectedOptions[0];
-  const formatId = select.value || 'best';
-  const tipo = currentTipo;
-  const titulo = currentData.titulo || 'descarga';
+    try {
+        const r = await fetch('/api/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, tipo: getTipo() })
+        });
+        if (!r.ok) {
+            const j = await r.json().catch(()=>({}));
+            throw new Error(j.error || 'Error desconocido');
+        }
+        const blob = await r.blob();
+        const disp = r.headers.get('content-disposition') || '';
+        const m = disp.match(/filename="([^"]+)"/);
+        const name = m ? decodeURIComponent(m[1]) : 'descarga';
 
-  // Determinar extensión: usar la del formato seleccionado o la por defecto
-  let ext = '';
-  if (formatId !== 'best' && selected) {
-    ext = selected.dataset.ext || '';
-  }
-  // Para audio, siempre usar mp3 si no se especifica otra
-  if (tipo === 'audio' && !ext) ext = 'mp3';
-  // Para video, siempre usar mp4 si no se especifica otra
-  if (tipo === 'video' && !ext) ext = 'mp4';
-
-  const btn = $('downloadBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>Preparando descarga...';
-
-  const params = new URLSearchParams({
-    url: currentUrl,
-    formatId: formatId,
-    tipo: tipo,
-    titulo: titulo,
-  });
-  if (ext) params.set('ext', ext);
-
-  const downloadUrl = '/api/download?' + params.toString();
-
-  const a = document.createElement('a');
-  a.href = downloadUrl;
-  a.download = '';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-
-  setTimeout(() => {
-    btn.disabled = false;
-    btn.innerHTML = '⬇️ Descargar';
-  }, 4000);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+        setStatus('Descarga completada ✓', 'success');
+    } catch (e) {
+        setStatus('Error: ' + e.message, 'error');
+    } finally {
+        $('btnDownload').disabled = false;
+    }
 }
 
-$('url').addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+$('url').addEventListener('keypress', e => { if (e.key === 'Enter') getInfo(); });
 </script>
 </body>
 </html>

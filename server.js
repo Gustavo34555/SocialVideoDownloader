@@ -1,396 +1,204 @@
 const express = require('express');
 const cors = require('cors');
 const { spawn, execFile } = require('child_process');
-const https = require('https');
-const http = require('http');
+const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const app = express();
+
+/* ─── Middlewares ─── */
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(__dirname));
-app.use(express.static(__dirname));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(__dirname, '.')));
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+/* ─── Config ─── */
+const PORT = process.env.PORT || 3000;
+const TMP_DIR = process.env.TMP_DIR || path.join(os.tmpdir(), 'ytdl');
+const YTDLP = '/usr/local/bin/yt-dlp'; // symlink del Dockerfile
 
-// =======================================================================
-// RESOLUCIÓN DE URL
-// Sigue los redirects HTTP manualmente para enlaces cortos (TikTok, etc.)
-// y limpia parámetros de seguimiento que confunden a los extractores.
-// =======================================================================
-
-function followRedirect(url, depth = 0) {
-    return new Promise((resolve, reject) => {
-        if (depth > 10) return reject(new Error('Demasiados redirects'));
-        const proto = url.startsWith('https') ? https : http;
-        const req = proto.get(url, {
-            headers: {
-                'User-Agent': USER_AGENT,
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept': '*/*',
-                'Accept-Encoding': 'identity',
-            }
-        }, response => {
-            response.resume();
-            if (response.statusCode && [301, 302, 303, 307, 308].includes(response.statusCode)) {
-                const loc = response.headers.location;
-                if (!loc) return reject(new Error('Redirect sin Location'));
-                const next = loc.startsWith('http') ? loc : new URL(loc, url).toString();
-                return resolve(followRedirect(next, depth + 1));
-            }
-            // Cualquier código 2xx (200, 203, 204...) significa que llegamos al destino
-            resolve(url);
-        });
-        req.on('error', reject);
-        req.setTimeout(15000, () => req.destroy(new Error('Timeout resolviendo URL')));
-    });
+if (!fs.existsSync(TMP_DIR)) {
+    fs.mkdirSync(TMP_DIR, { recursive: true });
 }
 
-function cleanTrackingParams(urlStr) {
-    try {
-        const u = new URL(urlStr);
-        ['_r', '_t', 'is_from_webapp', 'sender_device', 'utm_source', 'utm_medium', 'fbclid', 'igshid', 'si'].forEach(p => u.searchParams.delete(p));
-        return u.toString();
-    } catch (_) {
-        return urlStr;
-    }
-}
+/* ─── Helpers ─── */
+const sanitize = (s) => (s || 'video').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').substring(0, 120);
 
-// Detecta si la URL es de TikTok (incluye enlaces cortos).
-function isTiktokUrl(url) {
-    return /https?:\/\/(www\.)?(vt|vm|v)\.tiktok\.com|tiktok\.com/i.test(url);
-}
-
-// Resuelve enlaces cortos de TikTok; para otras redes, limpia parámetros y devuelve.
-async function resolveUrl(inputUrl) {
-    const trimmed = (inputUrl || '').trim();
-    if (!trimmed) return '';
-    if (isTiktokUrl(trimmed) && /https?:\/\/(vt|vm)\.tiktok\.com/i.test(trimmed)) {
-        try { return cleanTrackingParams(await followRedirect(trimmed)); }
-        catch (_) { return cleanTrackingParams(trimmed); }
-    }
-    return cleanTrackingParams(trimmed);
-}
-
-// Ejecuta yt-dlp devolviendo { code, stdout, stderr }.
-// Acepta opts.extraArgs para agregar flags (ej. cookies, extractor args)
-function runYtdlp(args, opts = {}) {
-    return new Promise((resolve) => {
-        const baseArgs = [
-            // Forzar un cliente alterno de YouTube: evita "Sign in to confirm you're not a bot"
-            // cuando yt-dlp corre en servidores cloud como Render.
-            '--extractor-args', 'youtube:player_client=tv,web_safari,web_embedded,android_vr',
-            // User-Agent realista: el default de yt-dlp a veces es bloqueado
-            '--user-agent', USER_AGENT,
-        ];
-        const finalArgs = baseArgs.concat(args, opts.extraArgs || []);
-        execFile('yt-dlp', finalArgs, { maxBuffer: 1024 * 1024 * 50, timeout: 90000 }, (error, stdout, stderr) => {
-            // Si el binario no existe, execFile emite ENOENT — lo distinguimos
-            if (error && error.code === 'ENOENT') {
-                return resolve({ code: 127, stdout: '', stderr: 'yt-dlp no está instalado en el servidor. Revisá el Dockerfile.' });
-            }
-            resolve({ code: error ? (error.code || 1) : 0, stdout: stdout || '', stderr: (stderr || '') + (error ? error.message : '') });
-        });
-    });
-}
-
-// Sanitiza un string para usarlo como nombre de archivo seguro.
-function sanitizeFilename(str) {
-    return (str || 'descarga').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim().substring(0, 200);
-}
-
-// Formatea segundos a mm:ss o h:mm:ss.
-function formatDuration(secs) {
-    if (!secs || secs <= 0) return null;
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = Math.floor(secs % 60);
-    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-// Formatea bytes a formato legible.
-function formatBytes(bytes) {
-    if (!bytes || bytes <= 0) return null;
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let i = 0;
-    let size = bytes;
-    while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
-    return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-// Mapea el extractor de yt-dlp a un nombre de plataforma legible.
-function getPlatformName(extractor) {
-    const map = {
-        'tiktok': 'TikTok',
-        'youtube': 'YouTube',
-        'instagram': 'Instagram',
-        'facebook': 'Facebook',
-        'twitter': 'X (Twitter)',
-        'reddit': 'Reddit',
-        'vimeo': 'Vimeo',
-        'dailymotion': 'Dailymotion',
-        'pinterest': 'Pinterest',
-        'twitch': 'Twitch',
-        'snapchat': 'Snapchat',
-        'soundcloud': 'SoundCloud',
-    };
-    const key = (extractor || '').split(':')[0].toLowerCase();
-    return map[key] || extractor || 'Desconocida';
-}
-
-// Extrae formatos de video únicos (incluye formatos DASH que son solo video;
-// yt-dlp se encarga de muxear con audio automáticamente).
-function extractVideoFormats(formats) {
-    const seen = new Set();
-    const result = [];
-    for (const f of formats) {
-        if (!f.vcodec || f.vcodec === 'none') continue;
-        const height = f.height || 0;
-        if (height <= 0) continue;
-
-        const key = height;
-        if (seen.has(key)) continue;
-        seen.add(key);
-
-        // Determinar si este formato ya tiene audio incluido
-        const tieneAudio = f.acodec && f.acodec !== 'none';
-        const ext = f.ext || 'mp4';
-        const tamano = formatBytes(f.filesize || f.filesize_approx);
-        const container = f.container || 'mp4';
-
-        // Etiqueta legible: resolución, formato, tamaño aprox, y nota de mux si aplica
-        const tamanoLabel = tamano ? '~' + tamano : '';
-        const muxLabel = !tieneAudio ? '→ se agrega audio' : '';
-        const etiqueta = `${height}p · ${ext.toUpperCase()}${tamanoLabel ? ' · ' + tamanoLabel : ''}${muxLabel ? ' · ' + muxLabel : ''}`;
-
-        result.push({
-            id: f.format_id,
-            calidad: `${height}p`,
-            etiqueta,
-            extension: ext,
-            tamano,
-            contenedor: container,
-            vcodec: f.vcodec,
-            nota: f.format_note || '',
-            tieneAudio,
-        });
-    }
-    // Ordenar de menor a mayor resolución
-    result.sort((a, b) => parseInt(a.calidad) - parseInt(b.calidad));
-    return result;
-}
-
-// Extrae formatos de audio únicos.
-function extractAudioFormats(formats) {
-    const seen = new Set();
-    const result = [];
-    for (const f of formats) {
-        if (!f.acodec || f.acodec === 'none') continue;
-        // Queremos formatos que sean solo audio (sin video)
-        if (f.vcodec && f.vcodec !== 'none') continue;
-        const br = f.tbr || f.abr || 0;
-        const ext = f.ext || 'mp3';
-        const tamano = formatBytes(f.filesize || f.filesize_approx);
-        // Clave para deduplicar: combinación de bitrate + extensión
-        const key = `${Math.round(br)}_${ext}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const etiqueta = `${ext.toUpperCase()}${br > 0 ? ' · ' + Math.round(br) + 'kbps' : ''}${tamano ? ' · ~' + tamano : ''}`;
-        result.push({
-            id: f.format_id,
-            calidad: f.format_note || (br > 0 ? `${Math.round(br)}kbps` : 'Audio'),
-            etiqueta,
-            extension: ext,
-            tamano,
-            contenedor: f.container || ext,
-            acodec: f.acodec,
-            bitrate: br,
-        });
-    }
-    // Ordenar por bitrate ascendente
-    result.sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
-    return result;
-}
-
-// =======================================================================
-// RUTAS DE LA API
-// =======================================================================
-
-// Analiza un enlace: detecta la plataforma y extrae formatos disponibles.
-app.post('/api/analyze', async (req, res) => {
-    if (!req.body.url) return res.status(400).json({ error: "Falta la URL" });
-
-    const safeUrl = await resolveUrl(req.body.url);
-    if (!safeUrl) return res.status(400).json({ error: "URL vacía o inválida" });
-
-    // Para TikTok, reescribimos /photo/ -> /video/ porque el extractor no acepta /photo/
-    const ytdlpUrl = isTiktokUrl(safeUrl) ? safeUrl.replace('/photo/', '/video/') : safeUrl;
-
-    const { code, stdout, stderr } = await runYtdlp(['--dump-json', '--no-warnings', ytdlpUrl]);
-    if (code !== 0) {
-        // Logueamos el detalle técnico solo en el servidor
-        console.error('[analyze] yt-dlp falló:', stderr.trim());
-        // Devolvemos un mensaje limpio al usuario
-        return res.status(500).json({
-            error: "No se pudo analizar el enlace.",
-            detalle: "Verificá que el enlace sea válido y público. Si es un enlace corto, esperá unos segundos y volvé a intentar."
-        });
-    }
-
-    try {
-        const m = JSON.parse(stdout);
-        const fmts = m.formats || [];
-        const tieneVideo = fmts.some(f => f.vcodec && f.vcodec !== 'none');
-        const tieneAudio = fmts.some(f => f.acodec && f.acodec !== 'none');
-
-        // Detección de carrusel (TikTok): tiene audio pero no video
-        const esCarrusel = isTiktokUrl(safeUrl) && !tieneVideo && tieneAudio;
-        // Detección de contenido solo audio
-        const esAudio = !tieneVideo && tieneAudio;
-
-        const plataformas = getPlatformName(m.extractor_key || m.extractor);
-
-        res.json({
-            titulo: m.title || m.description || 'Publicación',
-            autor: m.uploader ? ('@' + m.uploader) : (m.uploader_id || 'Desconocido'),
-            duracion: formatDuration(m.duration),
-            thumbnail: m.thumbnail || null,
-            plataforma: plataformas,
-            esCarrusel,
-            esAudio,
-            puedeVideo: tieneVideo,
-            puedeAudio: tieneAudio,
-            formatos_video: extractVideoFormats(fmts),
-            formatos_audio: extractAudioFormats(fmts),
-        });
-    } catch (e) {
-        res.status(500).json({ error: "Datos ilegibles recibidos de la red social." });
-    }
-});
-
-// Descarga un archivo (video o audio) según el formato seleccionado.
-// Estrategia: descarga a archivo temporal en /tmp, luego lo envía como stream
-// al navegador. Esto permite que yt-dlp haga mux (video + audio) y conversión
-// de formato correctamente, algo imposible con pipe a stdout (-o -).
-app.get('/api/download', async (req, res) => {
-    const safeUrl = await resolveUrl(req.query.url);
-    if (!safeUrl) return res.status(400).send("Falta la URL");
-
-    const formatId = req.query.formatId || 'best';
-    const tipo = req.query.tipo || 'video';
-    const titulo = sanitizeFilename(req.query.titulo || 'descarga');
-    const reqExt = req.query.ext || '';
-
-    const ytdlpUrl = isTiktokUrl(safeUrl) ? safeUrl.replace('/photo/', '/video/') : safeUrl;
-
-    // Determinar si se necesita mux (combinar video + audio por separado)
-    // Esto ocurre cuando se pide un formato DASH de solo video
-    const necesitaMux = tipo === 'video' && formatId !== 'best';
-
-    // Construir argumentos de formato para yt-dlp
-    let formatArg;
-    if (formatId === 'best') {
-        // Mejor calidad: preferir MP4 pre-combinado, sino combinamos
-        formatArg = tipo === 'audio' ? 'bestaudio[ext=m4a]/bestaudio/best' : 'bv*[ext=mp4]+ba[ext=m4a]/bv+ba/b[ext=mp4]/bv+ba/b';
-    } else if (necesitaMux) {
-        // Formato específico de solo video: combinar con mejor audio
-        formatArg = `${formatId}+ba/b[ext=mp4]/b`;
-    } else {
-        formatArg = formatId;
-    }
-
-    // Archivo temporal único para esta descarga
-    const tmpId = Date.now() + '_' + Math.random().toString(36).substring(2, 8);
-    const tmpDir = require('os').tmpdir();
-    const tmpFile = path.join(tmpDir, `descargador_${tmpId}.mp4`);
-
-    const args = [
-        '-f', formatArg,
-        '--merge-output-format', 'mp4',
-        '-o', tmpFile,
-        '--no-warnings',
-        '--no-mtime',
-        // Mismo fix de cliente alterno que en analyze
-        '--extractor-args', 'youtube:player_client=tv,web_safari,web_embedded,android_vr',
-        '--user-agent', USER_AGENT,
-        ytdlpUrl,
+function detectPlatform(url) {
+    const map = [
+        ['youtube', /(?:youtube\.com|youtu\.be)/i],
+        ['tiktok', /tiktok\.com/i],
+        ['instagram', /instagram\.com/i],
+        ['facebook', /facebook\.com|fb\.watch/i],
+        ['twitter', /twitter\.com|x\.com/i],
+        ['reddit', /reddit\.com/i],
+        ['twitch', /twitch\.tv/i],
+        ['vimeo', /vimeo\.com/i],
+        ['soundcloud', /soundcloud\.com/i],
     ];
+    for (const [name, re] of map) if (re.test(url)) return name;
+    return 'unknown';
+}
 
+function runYtDlp(args, timeout = 300000) {
+    return new Promise((resolve, reject) => {
+        const proc = spawn(YTDLP, args);
+        let stderr = '', stdout = '';
+        proc.stderr.on('data', d => stderr += d);
+        proc.stdout.on('data', d => stdout += d);
+
+        const t = setTimeout(() => {
+            proc.kill('SIGTERM');
+            reject(new Error('Timeout: la operación tardó demasiado'));
+        }, timeout);
+
+        proc.on('close', code => {
+            clearTimeout(t);
+            if (code === 0) return resolve(stdout);
+            const err = stderr.split('\n').filter(l => l.trim()).pop() || `Exit ${code}`;
+            reject(new Error(err));
+        });
+        proc.on('error', err => { clearTimeout(t); reject(err); });
+    });
+}
+
+function cleanup(basePath) {
+    ['', '.mp4', '.webm', '.mkv', '.mp3', '.m4a', '.opus', '.ogg', '.part'].forEach(ext => {
+        try { fs.unlinkSync(basePath + ext); } catch (_) {}
+    });
+}
+
+/* ─── GET /api/info ─── */
+app.get('/api/info', async (req, res) => {
+    const { url } = req.query;
+    if (!url || !/^https?:\/\/.+/.test(url)) {
+        return res.status(400).json({ error: 'URL inválida' });
+    }
     try {
-        // Ejecutar yt-dlp y esperar a que termine
-        await new Promise((resolve, reject) => {
-            const ytdlp = spawn('yt-dlp', args);
-            let stderrData = '';
-            ytdlp.stderr.on('data', d => { stderrData += d.toString(); });
-            ytdlp.on('close', code => {
-                if (code === 0) return resolve();
-                reject(new Error(stderrData.split('\n').filter(l => l.trim()).pop() || 'Error descargando'));
-            });
-            ytdlp.on('error', reject);
-        });
-
-        // Verificar que el archivo existe y tiene contenido
-        const fs = require('fs');
-        const stat = fs.statSync(tmpFile);
-        if (!stat || stat.size === 0) {
-            return res.status(500).send("El archivo descargado está vacío.");
-        }
-
-        // Enviar el archivo al navegador
-        const mimeTypes = {
-            'mp4': 'video/mp4',
-            'webm': 'video/webm',
-            'mkv': 'video/x-matroska',
-            'mp3': 'audio/mpeg',
-            'm4a': 'audio/mp4',
-            'opus': 'audio/ogg',
-            'ogg': 'audio/ogg',
-            'flac': 'audio/flac',
-            'wav': 'audio/wav',
-        };
-
-        let ext = reqExt || (tipo === 'audio' ? 'mp3' : 'mp4');
-        const contentType = mimeTypes[ext] || (tipo === 'audio' ? 'audio/mpeg' : 'video/mp4');
-        const filename = `${titulo}.${ext}`;
-
-        res.header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-        res.header('Content-Type', contentType);
-        res.header('Content-Length', stat.size);
-
-        const readStream = fs.createReadStream(tmpFile);
-        readStream.pipe(res);
-
-        // Limpiar el archivo temporal después de enviarlo
-        readStream.on('end', () => {
-            try { fs.unlinkSync(tmpFile); } catch (_) {}
-        });
-        readStream.on('error', () => {
-            try { fs.unlinkSync(tmpFile); } catch (_) {}
-            if (!res.headersSent) res.status(500).send("Error enviando el archivo.");
+        const out = await runYtDlp(['--dump-json', '--no-playlist', '--no-warnings', url], 30000);
+        const d = JSON.parse(out);
+        res.json({
+            title: d.title,
+            duration: d.duration,
+            thumbnail: d.thumbnail,
+            uploader: d.uploader,
+            platform: detectPlatform(url)
         });
     } catch (err) {
-        // Limpiar archivo temporal si algo salió mal
-        try { require('fs').unlinkSync(tmpFile); } catch (_) {}
-        if (!res.headersSent) {
-            res.status(500).send(err.message || "No se pudo descargar el archivo.");
-        }
+        res.status(500).json({ error: err.message });
     }
 });
 
-const PORT = process.env.PORT || 3000;
+/* ─── POST /api/download ─── */
+app.post('/api/download', async (req, res) => {
+    const { url, tipo = 'video', formato } = req.body;
+    if (!url || !/^https?:\/\/.+/.test(url)) {
+        return res.status(400).json({ error: 'URL inválida' });
+    }
 
-// Health check (Render lo usa para saber si el servicio está vivo)
+    const platform = detectPlatform(url);
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    const basePath = path.join(TMP_DIR, id);
+    let title = 'video';
+
+    try {
+        // 1. Título
+        try {
+            const out = await runYtDlp(['--dump-json', '--no-playlist', '--no-warnings', url], 30000);
+            title = sanitize(JSON.parse(out).title);
+        } catch (e) {
+            console.warn('[warn] Sin título:', e.message);
+        }
+
+        // 2. Estrategias
+        const ext = formato || (tipo === 'audio' ? 'mp3' : 'mp4');
+        const strategies = [];
+
+        if (tipo === 'audio') {
+            strategies.push(
+                ['-x', '--audio-format', ext, '--audio-quality', '0', '-o', basePath],
+                ['-f', 'bestaudio', '-x', '--audio-format', 'mp3', '--audio-quality', '0', '-o', basePath]
+            );
+        } else {
+            const fmap = {
+                mp4: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                webm: 'bestvideo[ext=webm]+bestaudio[ext=webm]/best[ext=webm]/best',
+                mkv: 'bestvideo+bestaudio/best'
+            };
+            const sel = fmap[ext] || 'bestvideo+bestaudio/best';
+            strategies.push(
+                ['-f', sel, '--merge-output-format', ext, '-o', basePath],
+                ['-f', 'best', '--remux-video', ext, '-o', basePath],
+                ['-f', 'best', '-o', basePath]
+            );
+        }
+
+        // 3. Ejecutar con fallback
+        let finalFile = null, lastErr = null;
+        for (let i = 0; i < strategies.length; i++) {
+            try {
+                console.log(`[dl] ${platform} | strategy ${i + 1}/${strategies.length}`);
+                await runYtDlp([...strategies[i], '--no-warnings', '--no-check-certificates', url]);
+
+                const candidates = [ext, 'mp4', 'webm', 'mkv', 'mp3', 'm4a', 'opus', 'ogg']
+                    .map(e => `${basePath}.${e}`);
+                candidates.push(basePath);
+
+                for (const f of candidates) {
+                    if (fs.existsSync(f)) { finalFile = f; break; }
+                }
+                if (!finalFile) throw new Error('Archivo no generado');
+                lastErr = null;
+                break;
+            } catch (e) {
+                console.error(`[dl] strategy ${i + 1} failed: ${e.message}`);
+                lastErr = e;
+                cleanup(basePath);
+            }
+        }
+        if (lastErr) throw lastErr;
+        if (!finalFile) throw new Error('No se generó el archivo');
+
+        const stat = fs.statSync(finalFile);
+        if (stat.size === 0) throw new Error('Archivo vacío');
+
+        // 4. Stream al navegador
+        const mime = {
+            mp4: 'video/mp4', webm: 'video/webm', mkv: 'video/x-matroska',
+            mp3: 'audio/mpeg', m4a: 'audio/mp4', opus: 'audio/ogg',
+            ogg: 'audio/ogg', flac: 'audio/flac', wav: 'audio/wav'
+        };
+        const outExt = path.extname(finalFile).slice(1) || ext;
+        const filename = `${title}.${outExt}`;
+
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+        res.setHeader('Content-Type', mime[outExt] || (tipo === 'audio' ? 'audio/mpeg' : 'video/mp4'));
+        res.setHeader('Content-Length', stat.size);
+
+        const stream = fs.createReadStream(finalFile);
+        stream.pipe(res);
+
+        stream.on('close', () => cleanup(basePath));
+        stream.on('error', () => {
+            cleanup(basePath);
+            if (!res.headersSent) res.status(500).end();
+        });
+
+    } catch (err) {
+        cleanup(basePath);
+        console.error('[dl] Error:', err.message);
+        if (!res.headersSent) res.status(500).json({ error: err.message || 'Error en descarga' });
+    }
+});
+
+/* ─── Health check ─── */
 app.get('/healthz', (req, res) => res.json({ ok: true, port: PORT }));
 
-// Verificamos yt-dlp al arrancar y lo logueamos
-execFile('yt-dlp', ['--version'], { timeout: 10000 }, (err, stdout) => {
-    if (err) {
-        console.error('[startup] yt-dlp NO está disponible:', err.message);
-    } else {
-        console.log('[startup] yt-dlp OK, versión:', (stdout || '').trim());
-    }
+/* ─── Startup ─── */
+execFile(YTDLP, ['-U'], { timeout: 60000 }, () => {}); // intenta actualizar silenciosamente
+execFile(YTDLP, ['--version'], { timeout: 10000 }, (err, stdout) => {
+    if (err) console.error('[startup] yt-dlp NO disponible:', err.message);
+    else console.log('[startup] yt-dlp versión:', stdout.trim());
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`[startup] Servidor activo en el puerto ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`[startup] Puerto ${PORT}`));
