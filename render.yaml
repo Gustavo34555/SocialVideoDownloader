@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: descargador-videos
+    name: descargador-universal-pro
     runtime: docker
     plan: free
     autoDeploy: true
@@ -9,3 +9,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: TMP_DIR
+        value: /tmp/ytdl

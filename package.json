@@ -1,7 +1,7 @@
 {
-  "name": "descargador-videos",
-  "version": "1.0.0",
-  "description": "Descargador universal con yt-dlp",
+  "name": "descargador-universal-pro",
+  "version": "2.0.0",
+  "description": "Descargador universal de videos con yt-dlp. Compatible con YouTube, TikTok, Instagram, X, Facebook y 1000+ sitios.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -13,5 +13,16 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": [
+    "yt-dlp",
+    "youtube-downloader",
+    "tiktok-downloader",
+    "video-downloader",
+    "instagram-downloader",
+    "render",
+    "docker"
+  ],
+  "author": "",
+  "license": "MIT"
 }
