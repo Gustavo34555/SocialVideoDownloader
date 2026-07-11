@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Descargador Universal Pro</title>
+<title>Descargador Universal Pro v4</title>
 <style>
   :root {
     --bg: #0d0d12; --card: #17171f; --card-2: #1f1f29;
     --border: #2a2a38; --text: #f5f5f7; --muted: #9a9aae;
     --accent: #ff2d55; --accent-2: #ff4081; --success: #34c759;
     --warning: #ff9f0a; --error: #ff453a; --info: #5ac8fa;
+    --invidious: #00bcd4;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -18,7 +19,7 @@
     min-height: 100vh; display: flex; align-items: center; justify-content: center;
     padding: 20px;
   }
-  .container { width: 100%; max-width: 600px; }
+  .container { width: 100%; max-width: 640px; }
   .card {
     background: linear-gradient(145deg, var(--card), var(--card-2));
     border: 1px solid var(--border); border-radius: 24px;
@@ -41,13 +42,14 @@
     padding: 4px 10px; border-radius: 10px; border: 1px solid var(--border);
   }
   .input-row { display: flex; gap: 10px; margin-bottom: 12px; }
-  input[type="text"], textarea {
+  input[type="text"], textarea, select {
     flex: 1; background: #0a0a0f; border: 1px solid var(--border);
     border-radius: 14px; padding: 13px 16px; color: var(--text);
     font-size: 15px; outline: none; transition: border-color .2s;
     font-family: inherit;
   }
-  input[type="text"]:focus, textarea:focus { border-color: var(--accent); }
+  select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239a9aae' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
+  input[type="text"]:focus, textarea:focus, select:focus { border-color: var(--accent); }
   input[type="text"]::placeholder, textarea::placeholder { color: #5a5a6e; }
   .btn {
     border: none; border-radius: 14px; padding: 13px 20px;
@@ -58,6 +60,7 @@
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-primary { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
   .btn-secondary { background: #2a2a38; border: 1px solid var(--border); }
+  .btn-inv { background: linear-gradient(90deg, #00bcd4, #00838f); }
   .btn-download { background: linear-gradient(90deg, #5856d6, #007aff); width: 100%; padding: 14px; font-size: 16px; margin-top: 8px; }
   .btn-download:disabled { background: #2a2a38; }
   .options {
@@ -76,6 +79,7 @@
   .status.success { background: rgba(52,199,89,0.1); color: var(--success); }
   .status.warning { background: rgba(255,159,10,0.1); color: var(--warning); }
   .status.info { background: rgba(90,200,250,0.1); color: var(--info); }
+  .status.invidious { background: rgba(0,188,212,0.1); color: var(--invidious); }
   .spinner {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid var(--border); border-top-color: var(--accent);
@@ -93,6 +97,14 @@
     display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 6px;
     background: var(--card-2); color: var(--muted); margin-top: 6px; margin-right: 4px;
   }
+  .tip-box {
+    background: rgba(90,200,250,0.08); border: 1px solid rgba(90,200,250,0.2);
+    border-radius: 10px; padding: 10px 12px; font-size: 12px;
+    color: var(--info); margin-top: 10px; display: none;
+  }
+  .tip-box.active { display: block; }
+  .tip-box.error { background: rgba(255,69,58,0.08); border-color: rgba(255,69,58,0.2); color: var(--error); }
+  .tip-box.invidious { background: rgba(0,188,212,0.08); border-color: rgba(0,188,212,0.2); color: var(--invidious); }
   .advanced { margin-top: 16px; }
   .advanced-toggle {
     display: flex; align-items: center; justify-content: center;
@@ -110,19 +122,43 @@
   .advanced-panel p {
     font-size: 11px; color: var(--muted); margin-bottom: 8px; line-height: 1.5;
   }
-  .tip-box {
-    background: rgba(90,200,250,0.08); border: 1px solid rgba(90,200,250,0.2);
-    border-radius: 10px; padding: 10px 12px; font-size: 12px;
-    color: var(--info); margin-top: 10px; display: none;
+  .advanced-panel .section {
+    margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border);
   }
-  .tip-box.active { display: block; }
+  .advanced-panel .section:last-child { border-bottom: none; margin-bottom: 0; }
+  .slideshow-options {
+    display: none; margin-top: 10px; gap: 8px; justify-content: center;
+  }
+  .slideshow-options.active { display: flex; }
+  .slideshow-options label {
+    font-size: 12px; color: var(--muted); cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+    background: #0a0a0f; padding: 6px 12px; border-radius: 10px; border: 1px solid var(--border);
+  }
+  .slideshow-options input[type="radio"] { accent-color: var(--accent); }
+  .invidious-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(0,188,212,0.15); color: #00bcd4;
+    font-size: 11px; padding: 4px 10px; border-radius: 20px;
+    border: 1px solid rgba(0,188,212,0.3);
+  }
+  .method-selector {
+    display: flex; gap: 8px; margin-bottom: 12px; justify-content: center;
+  }
+  .method-selector label {
+    font-size: 12px; color: var(--muted); cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+    background: #0a0a0f; padding: 6px 14px; border-radius: 10px; border: 1px solid var(--border);
+  }
+  .method-selector input[type="radio"] { accent-color: var(--accent); }
 </style>
+<base target="_blank">
 </head>
 <body>
 <div class="container">
   <div class="card">
     <div class="logo"><h1>Descargador Universal Pro</h1></div>
-    <div class="subtitle">Compatible con YouTube, TikTok, Instagram, X, Facebook y 1000+ sitios</div>
+    <div class="subtitle">YouTube, TikTok, Instagram, X, Facebook y 1000+ sitios</div>
 
     <div class="networks">
       <span>YouTube</span><span>TikTok</span><span>Instagram</span>
@@ -135,9 +171,19 @@
       <button class="btn btn-primary" id="btnInfo" onclick="getInfo()">Ver info</button>
     </div>
 
+    <div class="method-selector">
+      <label><input type="radio" name="method" value="auto" checked> ⚡ Auto (yt-dlp → Invidious)</label>
+      <label><input type="radio" name="method" value="invidious"> 🌐 Solo Invidious</label>
+    </div>
+
     <div class="options">
       <label><input type="radio" name="tipo" value="video" checked> Video</label>
-      <label><input type="radio" name="tipo" value="audio"> Audio MP3</label>
+      <label><input type="radio" name="tipo" value="audio"> Audio</label>
+    </div>
+
+    <div class="slideshow-options" id="slideshowOptions">
+      <label><input type="radio" name="slideshowMode" value="video" checked> 🎵 Audio solo</label>
+      <label><input type="radio" name="slideshowMode" value="images"> 📸 Imágenes + Audio (ZIP)</label>
     </div>
 
     <button class="btn btn-download" id="btnDownload" onclick="startDownload()">Descargar</button>
@@ -159,12 +205,27 @@
         <span id="advArrow">▼</span>
       </div>
       <div class="advanced-panel" id="advancedPanel">
-        <p><strong>Cookies (para evitar bloqueos de YouTube):</strong><br>
-        Exporta cookies de tu navegador con una extensión como "Get cookies.txt" y pégalo aquí.</p>
-        <textarea id="cookiesInput" placeholder="# Netscape HTTP Cookie File...\nyoutube.com\tTRUE\t/\tFALSE\t...\n..."></textarea>
-        <button class="btn btn-secondary" style="margin-top:8px;width:100%;" onclick="saveCookies()">Guardar cookies</button>
-        <p style="margin-top:10px;"><strong>Formato:</strong> Puedes forzar formato: mp4, webm, mkv (video) o mp3, m4a, opus (audio)</p>
-        <input type="text" id="formatoInput" placeholder="mp4" style="width:100%;margin-top:6px;">
+
+        <div class="section">
+          <p><strong>🍪 Cookies de navegador:</strong><br>
+          Exporta con "Get cookies.txt LOCALLY" y pega aquí.</p>
+          <textarea id="cookiesInput" placeholder="# Netscape HTTP Cookie File..."></textarea>
+          <button class="btn btn-secondary" style="margin-top:8px;width:100%;" onclick="saveCookies()">Guardar cookies</button>
+        </div>
+
+        <div class="section">
+          <p><strong>🔑 PO Token + Visitor Data (YouTube anti-bot):</strong><br>
+          <a href="https://github.com/yt-dlp/yt-dlp/wiki/Extractors#po-token-guide" target="_blank" style="color:var(--info)">¿Cómo obtenerlos?</a></p>
+          <input type="text" id="poToken" placeholder="PO Token" style="width:100%;margin-bottom:8px;">
+          <input type="text" id="visitorData" placeholder="Visitor Data" style="width:100%;margin-bottom:8px;">
+          <button class="btn btn-secondary" style="width:100%;" onclick="saveTokens()">Guardar tokens</button>
+        </div>
+
+        <div class="section">
+          <p><strong>🎬 Formato forzado:</strong> mp4, webm, mkv (video) / mp3, m4a, opus (audio)</p>
+          <input type="text" id="formatoInput" placeholder="mp4" style="width:100%;">
+        </div>
+
       </div>
     </div>
   </div>
@@ -179,19 +240,28 @@ function setStatus(html, cls='') {
     statusEl.className = 'status ' + cls;
 }
 
-function showTip(msg) {
+function showTip(msg, type='info') {
     const box = $('tipBox');
     box.textContent = msg;
-    box.classList.add('active');
-    setTimeout(() => box.classList.remove('active'), 10000);
+    box.className = 'tip-box active ' + (type === 'error' ? 'error' : type === 'invidious' ? 'invidious' : '');
+    setTimeout(() => box.classList.remove('active'), 15000);
 }
 
 function getTipo() {
     return document.querySelector('input[name="tipo"]:checked').value;
 }
 
+function getMethod() {
+    return document.querySelector('input[name="method"]:checked').value;
+}
+
 function getFormato() {
     return $('formatoInput').value.trim() || null;
+}
+
+function getSlideshowMode() {
+    const el = document.querySelector('input[name="slideshowMode"]:checked');
+    return el ? el.value : 'video';
 }
 
 function toggleAdvanced() {
@@ -201,24 +271,40 @@ function toggleAdvanced() {
     arrow.textContent = panel.classList.contains('active') ? '▲' : '▼';
 }
 
+function isTikTokPhoto(url) {
+    return /tiktok\.com\/.*\/photo\//i.test(url);
+}
+
 async function saveCookies() {
     const content = $('cookiesInput').value.trim();
     if (!content) return setStatus('Pega el contenido de cookies primero', 'error');
-
     try {
         const r = await fetch('/api/cookies', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content })
         });
         const d = await r.json();
-        if (d.ok) {
-            setStatus('Cookies guardadas ✓', 'success');
-            showTip('Las cookies ayudan a evitar el bloqueo "Sign in to confirm you\'re not a bot" de YouTube.');
-        } else throw new Error(d.error);
-    } catch (e) {
-        setStatus('Error guardando cookies: ' + e.message, 'error');
-    }
+        if (d.ok) { setStatus('Cookies guardadas ✓', 'success'); }
+        else throw new Error(d.error);
+    } catch (e) { setStatus('Error: ' + e.message, 'error'); }
+}
+
+async function saveTokens() {
+    const po_token = $('poToken').value.trim();
+    const visitor_data = $('visitorData').value.trim();
+    if (!po_token || !visitor_data) return setStatus('Se requieren ambos tokens', 'error');
+    try {
+        const r = await fetch('/api/tokens', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ po_token, visitor_data })
+        });
+        const d = await r.json();
+        if (d.ok) { 
+            setStatus('Tokens guardados ✓', 'success'); 
+            showTip('YouTube debería funcionar ahora sin errores de bot.', 'info');
+        }
+        else throw new Error(d.error);
+    } catch (e) { setStatus('Error: ' + e.message, 'error'); }
 }
 
 async function getInfo() {
@@ -228,6 +314,7 @@ async function getInfo() {
     setStatus('<span class="spinner"></span> Analizando...');
     $('btnInfo').disabled = true;
     $('preview').style.display = 'none';
+    $('slideshowOptions').classList.remove('active');
 
     try {
         const r = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
@@ -251,11 +338,17 @@ async function getInfo() {
         badges.innerHTML = '';
         if (d.isSlideshow) {
             badges.innerHTML += '<span class="badge">📸 Slideshow</span>';
-            showTip('Este enlace es un carrusel de imágenes. La descarga puede requerir formato ZIP o imágenes individuales.');
+            $('slideshowOptions').classList.add('active');
+            showTip('Este enlace es un carrusel de imágenes. Puedes descargar solo el audio o todas las imágenes + audio en ZIP.', 'info');
+        } else {
+            $('slideshowOptions').classList.remove('active');
         }
         if (d.formats_count) {
             badges.innerHTML += `<span class="badge">${d.formats_count} formatos</span>`;
         }
+        if (d.hasCookies) badges.innerHTML += '<span class="badge">🍪 Cookies OK</span>';
+        if (d.hasTokens) badges.innerHTML += '<span class="badge">🔑 Tokens OK</span>';
+        if (d.source === 'invidious') badges.innerHTML += '<span class="invidious-badge">🌐 Invidious</span>';
 
         setStatus('Listo para descargar', 'success');
     } catch (e) {
@@ -263,7 +356,7 @@ async function getInfo() {
         $('preview').style.display = 'none';
 
         if (e.message.includes('bot') || e.message.includes('Sign in')) {
-            showTip('💡 YouTube está bloqueando este servidor. Ve a Opciones Avanzadas y sube tus cookies de navegador.');
+            showTip('💡 YouTube bloquea este servidor. Prueba el modo "Solo Invidious" o configura PO Token + Visitor Data.', 'error');
         }
     } finally {
         $('btnInfo').disabled = false;
@@ -274,11 +367,20 @@ async function startDownload() {
     const url = $('url').value.trim();
     if (!url) return setStatus('Pega una URL primero', 'error');
 
+    const isSlideshow = isTikTokPhoto(url);
+    const mode = isSlideshow ? getSlideshowMode() : 'video';
+    const method = getMethod();
+
     setStatus('<span class="spinner"></span> Descargando...');
     $('btnDownload').disabled = true;
 
     try {
-        const body = { url, tipo: getTipo() };
+        // Si el método es invidious y es YouTube, forzar uso de Invidious
+        if (method === 'invidious' && /(?:youtube\.com|youtu\.be)/i.test(url)) {
+            setStatus('<span class="spinner"></span> Usando Invidious...');
+        }
+
+        const body = { url, tipo: getTipo(), mode };
         const fmt = getFormato();
         if (fmt) body.formato = fmt;
 
@@ -298,6 +400,8 @@ async function startDownload() {
         const m = disp.match(/filename="([^"]+)"/);
         const name = m ? decodeURIComponent(m[1]) : 'descarga';
 
+        const isInvidious = r.headers.get('x-source') === 'invidious';
+
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = name;
@@ -306,25 +410,38 @@ async function startDownload() {
         a.remove();
         URL.revokeObjectURL(a.href);
 
-        setStatus('Descarga completada ✓', 'success');
+        if (isInvidious) {
+            setStatus('Descarga completada vía Invidious ✓', 'success');
+            showTip('🌐 Este archivo se descargó usando Invidious como alternativa a YouTube.', 'invidious');
+        } else {
+            setStatus('Descarga completada ✓', 'success');
+        }
     } catch (e) {
         setStatus('Error: ' + e.message, 'error');
 
         if (e.message.includes('bot') || e.message.includes('Sign in')) {
-            showTip('💡 YouTube detectó IP de datacenter. Solución: exporta cookies de tu navegador (extensión "Get cookies.txt") y pégalo en Opciones Avanzadas.');
-        } else if (e.message.includes('Unsupported URL') && url.includes('tiktok.com/photo/')) {
-            showTip('💡 Los carruseles de fotos de TikTok no son videos. yt-dlp tiene soporte limitado para estos enlaces. Intenta con un video de TikTok normal.');
+            showTip('💡 YouTube bloquea este servidor. Prueba: 1) Modo "Solo Invidious" 2) PO Token + Visitor Data 3) Ejecutar en local.', 'error');
+        } else if (e.message.includes('Unsupported URL') && isSlideshow) {
+            showTip('💡 Los carruseles de TikTok requieren modo especial. Elige "Imágenes + Audio" o "Audio solo".', 'error');
         } else if (e.message.includes('Timeout')) {
-            showTip('💡 El servidor tardó demasiado. YouTube/Instagram pueden estar bloqueando la IP. Intenta con cookies o más tarde.');
+            showTip('💡 El servidor tardó demasiado. Intenta con Invidious o más tarde.', 'error');
         }
     } finally {
         $('btnDownload').disabled = false;
     }
 }
 
+$('url').addEventListener('input', () => {
+    const url = $('url').value.trim();
+    if (isTikTokPhoto(url)) {
+        $('slideshowOptions').classList.add('active');
+    } else {
+        $('slideshowOptions').classList.remove('active');
+    }
+});
+
 $('url').addEventListener('keypress', e => { if (e.key === 'Enter') getInfo(); });
 
-// Cargar versión al iniciar
 fetch('/api/version').then(r => r.json()).then(d => {
     console.log('yt-dlp version:', d.yt_dlp);
 }).catch(()=>{});
