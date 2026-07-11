@@ -1,18 +1,18 @@
-# 🎬 Descargador Universal Pro v4.0
+# 🎬 Descargador Universal Pro v5.0
 
-Descargador de videos y audio con **fallback a Invidious** para YouTube, **anti-bot con PO Token**, y **soporte completo para carruseles de TikTok**. Compatible con **1000+ sitios web**.
+Descargador de videos y audio con **fallback a Invidious** para YouTube y **extracción directa de HTML** para carruseles de TikTok. Compatible con **1000+ sitios web**.
 
 Funciona en **local**, **Render**, **Railway**, **VPS** y cualquier servidor Docker.
 
 ---
 
-## ✨ Novedades v4.0
+## ✨ Novedades v5.0
 
-- 🌐 **Fallback a Invidious**: Si YouTube bloquea yt-dlp, descarga automáticamente vía instancias de Invidious
-- 🎛️ **Modo Solo Invidious**: Forzar el uso de Invidious para evitar completamente el bot detection
-- 🛡️ **Anti-bot**: PO Token + Visitor Data + 6 extractores con fallback
-- 📸 **TikTok Slideshows**: Descarga imágenes de carruseles + audio en ZIP
-- 🔄 **Auto-fallback**: yt-dlp → Invidious → error con tip de solución
+- 🌐 **Invidious actualizado**: Instancias verificadas y funcionando en 2026
+- 📸 **TikTok Slideshows reescrito**: Extrae imágenes directamente del HTML de TikTok (sin depender de yt-dlp)
+- 🔗 **URLs cortas**: Soporta `vt.tiktok.com` y `vm.tiktok.com` resolviendo la redirección automáticamente
+- 🛡️ **Anti-bot mejorado**: Extractor `tv` como primario para YouTube
+- 🔄 **Auto-fallback**: yt-dlp → Invidious → error con solución
 
 ---
 
@@ -41,37 +41,45 @@ docker run -p 3000:3000 descargador-pro
 El servidor intenta **3 niveles** automáticamente:
 
 1. **yt-dlp** con cookies + PO Token (si están configurados)
-2. **yt-dlp** con extractores alternativos (tv, android_vr, mweb, ios...)
+2. **yt-dlp** con extractores alternativos (`tv`, `tv_downgraded`, `android_vr`, `web`, `mweb`, `ios`)
 3. **Invidious** como fallback automático
 
-Si todo falla, puedes **forzar Invidious** con el selector "🌐 Solo Invidious" en la interfaz.
+Si todo falla, usa el selector **"🌐 Solo Invidious"** en la interfaz.
 
 #### Opción 1: Forzar Invidious (Más sencillo)
 
-En la interfaz, selecciona **"🌐 Solo Invidious"** antes de descargar. Esto evita completamente el bot detection de YouTube al usar instancias públicas de Invidious como proxy.
+Selecciona **"🌐 Solo Invidious"** antes de descargar. Esto evita completamente el bot detection de YouTube.
 
 #### Opción 2: PO Token + Visitor Data
 
 1. Ve a YouTube en tu navegador → F12 → Application → Cookies
-2. Copia `VISITOR_INFO1_LIVE` (Visitor Data) y genera el PO Token
-3. Pégalo en **Opciones Avanzadas** → Guardar tokens
-
-#### Opción 3: Cookies
-
-1. Instala **"Get cookies.txt LOCALLY"**
-2. Exporta cookies de YouTube en formato Netscape
-3. Pégalo en Opciones Avanzadas → Guardar cookies
+2. Copia `VISITOR_INFO1_LIVE` (Visitor Data)
+3. En tu app, abre **⚙️ Opciones Avanzadas** → pega ambos valores → Guardar
 
 ---
 
-### TikTok: Carruseles de imágenes (/photo/)
+### TikTok: Carruseles de imágenes
 
-Los enlaces `tiktok.com/@user/photo/123` son slideshows. La app detecta automáticamente estos enlaces y ofrece:
+**URLs soportadas:**
+- `https://www.tiktok.com/@usuario/photo/1234567890`
+- `https://vt.tiktok.com/ABC123/` (URL corta)
+- `https://vm.tiktok.com/XYZ456/` (URL corta)
+
+**Modos disponibles:**
 
 | Modo | Resultado |
 |------|-----------|
 | **🎵 Audio solo** | MP3 con la música del carrusel |
 | **📸 Imágenes + Audio (ZIP)** | ZIP con todas las imágenes JPG + audio MP3 |
+
+**Cómo funciona internamente:**
+1. Resuelve la URL corta (`vt.tiktok.com` → `www.tiktok.com`)
+2. Obtiene el HTML de la página de TikTok
+3. Extrae las imágenes de los meta tags `og:image` y del JSON de datos SSR
+4. Extrae la URL del audio del HTML
+5. Descarga todo y empaqueta en ZIP
+
+> **Nota**: yt-dlp NO soporta `/photo/` URLs de TikTok. El servidor usa extracción directa del HTML como workaround.
 
 ---
 
@@ -79,7 +87,7 @@ Los enlaces `tiktok.com/@user/photo/123` son slideshows. La app detecta automát
 
 ```
 descargador-videos/
-├── server.js          # Backend con Invidious fallback
+├── server.js          # Backend con Invidious + extracción HTML TikTok
 ├── index.html         # Frontend con selector de método
 ├── Dockerfile         # Node 20 + ffmpeg + yt-dlp
 ├── package.json       # Dependencias (archiver)
@@ -96,7 +104,7 @@ descargador-videos/
 | Plataforma | Videos | Audio | Shorts | Slideshows | Método |
 |------------|--------|-------|--------|------------|--------|
 | **YouTube** | ✅ | ✅ | ✅ | ❌ | yt-dlp / Invidious |
-| **TikTok** | ✅ | ✅ | ✅ | ✅ (ZIP) | yt-dlp |
+| **TikTok** | ✅ | ✅ | ✅ | ✅ (ZIP) | yt-dlp / HTML directo |
 | **Instagram** | ✅ | ✅ | ✅ | ❌ | yt-dlp |
 | **Facebook** | ✅ | ✅ | ✅ | ❌ | yt-dlp |
 | **X/Twitter** | ✅ | ✅ | ✅ | ❌ | yt-dlp |

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Descargador Universal Pro v4</title>
+<title>Descargador Universal Pro v5</title>
 <style>
   :root {
     --bg: #0d0d12; --card: #17171f; --card-2: #1f1f29;
@@ -42,14 +42,13 @@
     padding: 4px 10px; border-radius: 10px; border: 1px solid var(--border);
   }
   .input-row { display: flex; gap: 10px; margin-bottom: 12px; }
-  input[type="text"], textarea, select {
+  input[type="text"], textarea {
     flex: 1; background: #0a0a0f; border: 1px solid var(--border);
     border-radius: 14px; padding: 13px 16px; color: var(--text);
     font-size: 15px; outline: none; transition: border-color .2s;
     font-family: inherit;
   }
-  select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239a9aae' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
-  input[type="text"]:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  input[type="text"]:focus, textarea:focus { border-color: var(--accent); }
   input[type="text"]::placeholder, textarea::placeholder { color: #5a5a6e; }
   .btn {
     border: none; border-radius: 14px; padding: 13px 20px;
@@ -60,7 +59,6 @@
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-primary { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
   .btn-secondary { background: #2a2a38; border: 1px solid var(--border); }
-  .btn-inv { background: linear-gradient(90deg, #00bcd4, #00838f); }
   .btn-download { background: linear-gradient(90deg, #5856d6, #007aff); width: 100%; padding: 14px; font-size: 16px; margin-top: 8px; }
   .btn-download:disabled { background: #2a2a38; }
   .options {
@@ -271,8 +269,8 @@ function toggleAdvanced() {
     arrow.textContent = panel.classList.contains('active') ? '▲' : '▼';
 }
 
-function isTikTokPhoto(url) {
-    return /tiktok\.com\/.*\/photo\//i.test(url);
+function isTikTokUrl(url) {
+    return /tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com/i.test(url);
 }
 
 async function saveCookies() {
@@ -343,6 +341,9 @@ async function getInfo() {
         } else {
             $('slideshowOptions').classList.remove('active');
         }
+        if (d.imageCount) {
+            badges.innerHTML += `<span class="badge">${d.imageCount} imágenes</span>`;
+        }
         if (d.formats_count) {
             badges.innerHTML += `<span class="badge">${d.formats_count} formatos</span>`;
         }
@@ -367,15 +368,14 @@ async function startDownload() {
     const url = $('url').value.trim();
     if (!url) return setStatus('Pega una URL primero', 'error');
 
-    const isSlideshow = isTikTokPhoto(url);
-    const mode = isSlideshow ? getSlideshowMode() : 'video';
+    const isTikTok = isTikTokUrl(url);
+    const mode = isTikTok ? getSlideshowMode() : 'video';
     const method = getMethod();
 
     setStatus('<span class="spinner"></span> Descargando...');
     $('btnDownload').disabled = true;
 
     try {
-        // Si el método es invidious y es YouTube, forzar uso de Invidious
         if (method === 'invidious' && /(?:youtube\.com|youtu\.be)/i.test(url)) {
             setStatus('<span class="spinner"></span> Usando Invidious...');
         }
@@ -411,7 +411,7 @@ async function startDownload() {
         URL.revokeObjectURL(a.href);
 
         if (isInvidious) {
-            setStatus('Descarga completada vía Invidious ✓', 'success');
+            setStatus('Descarga completada vía Invidious ✓', 'invidious');
             showTip('🌐 Este archivo se descargó usando Invidious como alternativa a YouTube.', 'invidious');
         } else {
             setStatus('Descarga completada ✓', 'success');
@@ -420,8 +420,8 @@ async function startDownload() {
         setStatus('Error: ' + e.message, 'error');
 
         if (e.message.includes('bot') || e.message.includes('Sign in')) {
-            showTip('💡 YouTube bloquea este servidor. Prueba: 1) Modo "Solo Invidious" 2) PO Token + Visitor Data 3) Ejecutar en local.', 'error');
-        } else if (e.message.includes('Unsupported URL') && isSlideshow) {
+            showTip('💡 YouTube detectó IP de datacenter. Prueba: 1) Modo "Solo Invidious" 2) PO Token + Visitor Data 3) Ejecutar en local.', 'error');
+        } else if (e.message.includes('Unsupported URL') && isTikTok) {
             showTip('💡 Los carruseles de TikTok requieren modo especial. Elige "Imágenes + Audio" o "Audio solo".', 'error');
         } else if (e.message.includes('Timeout')) {
             showTip('💡 El servidor tardó demasiado. Intenta con Invidious o más tarde.', 'error');
@@ -433,7 +433,7 @@ async function startDownload() {
 
 $('url').addEventListener('input', () => {
     const url = $('url').value.trim();
-    if (isTikTokPhoto(url)) {
+    if (isTikTokUrl(url)) {
         $('slideshowOptions').classList.add('active');
     } else {
         $('slideshowOptions').classList.remove('active');

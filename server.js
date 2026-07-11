@@ -28,16 +28,53 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '.')));
 
 /* ═══════════════════════════════════════════
-   INVIDIOUS - INSTANCIAS Y UTILIDADES
+   INVIDIOUS - INSTANCIAS ACTUALIZADAS 2026
 ═══════════════════════════════════════════ */
 const INVIDIOUS_INSTANCES = [
     'https://inv.nadeko.net',
     'https://invidious.nerdvpn.de',
-    'https://yt.chocolatemoo53.com',
-    'https://invidious.tiekoetter.com',
-    'https://invidious.f5.si',
-    'https://inv.zoomerville.com'
+    'https://iv.nboeck.de',
+    'https://yt.artemislena.eu',
+    'https://iv.datura.network',
+    'https://iv.nboeck.de',
+    'https://yt.drgnz.club',
+    'https://iv.melmac.space'
 ];
+
+/* ═══════════════════════════════════════════
+   UTILIDADES HTTP
+═══════════════════════════════════════════ */
+function httpGet(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        const client = url.startsWith('https:') ? https : http;
+        const req = client.get(url, {
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                ...options.headers
+            },
+            timeout: options.timeout || 15000,
+            maxRedirects: options.maxRedirects || 5
+        }, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                return resolve({ redirect: res.headers.location, statusCode: res.statusCode });
+            }
+            if (res.statusCode !== 200) {
+                res.resume();
+                return reject(new Error(`HTTP ${res.statusCode}`));
+            }
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve({ data, statusCode: res.statusCode, headers: res.headers }));
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+    });
+}
 
 function httpGetJson(url, timeout = 15000) {
     return new Promise((resolve, reject) => {
@@ -67,7 +104,7 @@ function downloadFile(url, dest, timeout = 300000) {
         const client = url.startsWith('https:') ? https : http;
         const file = fs.createWriteStream(dest);
         const req = client.get(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             timeout
         }, (res) => {
             if (res.statusCode !== 200) {
@@ -116,7 +153,7 @@ const sanitize = (s) => (s || 'download').replace(/[<>:"\/\\|?*\x00-\x1f]/g, '_'
 function detectPlatform(url) {
     const map = [
         ['youtube', /(?:youtube\.com|youtu\.be)/i],
-        ['tiktok', /tiktok\.com/i],
+        ['tiktok', /tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com/i],
         ['instagram', /instagram\.com/i],
         ['facebook', /facebook\.com|fb\.watch/i],
         ['twitter', /twitter\.com|x\.com/i],
@@ -131,6 +168,10 @@ function detectPlatform(url) {
 
 function isTikTokPhoto(url) {
     return /tiktok\.com\/.*\/photo\//i.test(url);
+}
+
+function isTikTokShortUrl(url) {
+    return /^(https?:\/\/)?(vt|vm)\.tiktok\.com\//i.test(url);
 }
 
 function extractYouTubeId(url) {
@@ -158,6 +199,145 @@ function getYouTubeTokens() {
 }
 
 /* ═══════════════════════════════════════════
+   RESOLVER URL CORTA DE TIKTOK
+═══════════════════════════════════════════ */
+async function resolveTikTokUrl(url) {
+    if (!isTikTokShortUrl(url)) return url;
+    try {
+        const result = await httpGet(url, { maxRedirects: 0 });
+        if (result.redirect) {
+            console.log(`[tiktok] URL corta resuelta: ${result.redirect}`);
+            return result.redirect;
+        }
+    } catch (e) {
+        console.warn('[tiktok] No se pudo resolver URL corta:', e.message);
+    }
+    return url;
+}
+
+/* ═══════════════════════════════════════════
+   EXTRAER IMÁGENES DE TIKTOK SLIDESHOW
+═══════════════════════════════════════════ */
+async function extractTikTokSlideshowImages(url) {
+    // Resolver URL corta si es necesario
+    const resolvedUrl = await resolveTikTokUrl(url);
+
+    // Obtener HTML de la página
+    const { data: html } = await httpGet(resolvedUrl, { timeout: 20000 });
+
+    // Extraer imágenes del HTML usando regex
+    // TikTok embeds images in SSR HTML with data attributes
+    const images = [];
+
+    // Patrón 1: Imágenes en meta tags (Open Graph)
+    const ogImageRegex = /<meta[^>]*property="og:image"[^>]*content="([^"]+)"/gi;
+    let match;
+    while ((match = ogImageRegex.exec(html)) !== null) {
+        if (!images.includes(match[1])) images.push(match[1]);
+    }
+
+    // Patrón 2: Imágenes en el JSON de datos de la página
+    const ssrDataMatch = html.match(/<script[^>]*id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/i);
+    if (ssrDataMatch) {
+        try {
+            const jsonStr = ssrDataMatch[1].trim();
+            const data = JSON.parse(jsonStr);
+            // Navegar por la estructura para encontrar imageList
+            const findImages = (obj) => {
+                if (typeof obj !== 'object' || obj === null) return;
+                if (obj.imageList && Array.isArray(obj.imageList)) {
+                    obj.imageList.forEach(img => {
+                        if (img.url && !images.includes(img.url)) images.push(img.url);
+                        if (img.imageURL && !images.includes(img.imageURL)) images.push(img.imageURL);
+                        if (img.imageUrl && !images.includes(img.imageUrl)) images.push(img.imageUrl);
+                    });
+                }
+                if (obj.images && Array.isArray(obj.images)) {
+                    obj.images.forEach(img => {
+                        if (typeof img === 'string' && !images.includes(img)) images.push(img);
+                        if (img.url && !images.includes(img.url)) images.push(img.url);
+                    });
+                }
+                Object.values(obj).forEach(v => findImages(v));
+            };
+            findImages(data);
+        } catch (e) { console.warn('[tiktok] Error parseando SSR data:', e.message); }
+    }
+
+    // Patrón 3: Buscar en el HTML raw por URLs de imágenes de TikTok CDN
+    const imgRegex = /https:\/\/[^"\s]+tiktokcdn\.com[^"\s]*\.(?:jpg|jpeg|png|webp)/gi;
+    const cdnMatches = html.match(imgRegex) || [];
+    cdnMatches.forEach(url => {
+        if (!images.includes(url)) images.push(url);
+    });
+
+    // Patrón 4: Buscar en el script de inicialización
+    const initDataMatch = html.match(/<script[^>]*>window\._SSR_HYDRATED_DATA\s*=\s*({[\s\S]*?});?<\/script>/i);
+    if (initDataMatch) {
+        try {
+            const data = JSON.parse(initDataMatch[1]);
+            const findImages = (obj) => {
+                if (typeof obj !== 'object' || obj === null) return;
+                if (obj.imageList && Array.isArray(obj.imageList)) {
+                    obj.imageList.forEach(img => {
+                        if (img.url && !images.includes(img.url)) images.push(img.url);
+                    });
+                }
+                Object.values(obj).forEach(v => findImages(v));
+            };
+            findImages(data);
+        } catch (e) {}
+    }
+
+    // Filtrar solo imágenes de alta calidad (no thumbnails pequeños)
+    const highQualityImages = images.filter(url => 
+        !url.includes('thumbnail') && 
+        !url.includes('100x100') && 
+        !url.includes('50x50') &&
+        (url.includes('tos-maliva') || url.includes('tiktokcdn'))
+    );
+
+    return highQualityImages.length > 0 ? highQualityImages : images;
+}
+
+/* ═══════════════════════════════════════════
+   EXTRAER AUDIO DE TIKTOK SLIDESHOW
+═══════════════════════════════════════════ */
+async function extractTikTokSlideshowAudio(url) {
+    const resolvedUrl = await resolveTikTokUrl(url);
+    const { data: html } = await httpGet(resolvedUrl, { timeout: 20000 });
+
+    // Buscar URL de audio en el HTML
+    const audioRegex = /https:\/\/[^"\s]+tiktokcdn\.com[^"\s]*\.(?:mp3|m4a|aac)/gi;
+    const matches = html.match(audioRegex) || [];
+
+    if (matches.length > 0) return matches[0];
+
+    // Buscar en SSR data
+    const ssrMatch = html.match(/<script[^>]*id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/i);
+    if (ssrMatch) {
+        try {
+            const data = JSON.parse(ssrMatch[1].trim());
+            const findAudio = (obj) => {
+                if (typeof obj !== 'object' || obj === null) return null;
+                if (obj.music && obj.music.playUrl) return obj.music.playUrl;
+                if (obj.audio && obj.audio.url) return obj.audio.url;
+                if (obj.musicUrl) return obj.musicUrl;
+                for (const v of Object.values(obj)) {
+                    const found = findAudio(v);
+                    if (found) return found;
+                }
+                return null;
+            };
+            const audioUrl = findAudio(data);
+            if (audioUrl) return audioUrl;
+        } catch (e) {}
+    }
+
+    return null;
+}
+
+/* ═══════════════════════════════════════════
    INVIDIOUS FALLBACK
 ═══════════════════════════════════════════ */
 async function getInvidiousVideoInfo(videoId) {
@@ -180,20 +360,16 @@ async function downloadFromInvidious(videoId, tipo, ext, basePath, title) {
     const { data, instance } = await getInvidiousVideoInfo(videoId);
 
     if (tipo === 'audio') {
-        // Buscar mejor stream de audio en adaptiveFormats
         const audioFormats = (data.adaptiveFormats || []).filter(f => 
             f.type && f.type.startsWith('audio/') && f.url
         ).sort((a, b) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
 
-        if (audioFormats.length === 0) {
-            throw new Error('Invidious: no encontró streams de audio');
-        }
+        if (audioFormats.length === 0) throw new Error('Invidious: no encontró streams de audio');
 
         const bestAudio = audioFormats[0];
         const rawAudio = basePath + '_raw';
         await downloadFile(bestAudio.url, rawAudio, 120000);
 
-        // Convertir a formato deseado con ffmpeg
         const outFile = `${basePath}.${ext}`;
         await new Promise((resolve, reject) => {
             const ffmpeg = spawn('ffmpeg', [
@@ -204,19 +380,16 @@ async function downloadFromInvidious(videoId, tipo, ext, basePath, title) {
             ]);
             ffmpeg.on('close', code => {
                 try { fs.unlinkSync(rawAudio); } catch (_) {}
-                if (code === 0) resolve();
-                else reject(new Error(`ffmpeg exit ${code}`));
+                if (code === 0) resolve(); else reject(new Error(`ffmpeg exit ${code}`));
             });
             ffmpeg.on('error', reject);
         });
 
         return { file: outFile, title: data.title || title };
     } else {
-        // Video: usar formatStreams (ya mergeados) o adaptiveFormats
         const formats = (data.formatStreams || []).filter(f => f.url);
 
         if (formats.length > 0) {
-            // Usar formatStreams progresivo (ya tiene audio+video)
             const best = formats.reduce((a, b) => {
                 const resA = parseInt(a.qualityLabel) || 0;
                 const resB = parseInt(b.qualityLabel) || 0;
@@ -227,7 +400,6 @@ async function downloadFromInvidious(videoId, tipo, ext, basePath, title) {
             const rawFile = basePath + '_raw';
             await downloadFile(best.url, rawFile, 300000);
 
-            // Si el formato no coincide, remuxear con ffmpeg
             const container = best.container || path.extname(best.url).slice(1) || 'mp4';
             if (container === ext || (container === 'mp4' && ext === 'mp4')) {
                 fs.renameSync(rawFile, outFile);
@@ -243,7 +415,6 @@ async function downloadFromInvidious(videoId, tipo, ext, basePath, title) {
             }
             return { file: outFile, title: data.title || title };
         } else {
-            // Adaptive formats: necesitamos mergear video+audio con ffmpeg
             const videoFormats = (data.adaptiveFormats || []).filter(f => 
                 f.type && f.type.startsWith('video/') && f.url
             ).sort((a, b) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
@@ -258,9 +429,7 @@ async function downloadFromInvidious(videoId, tipo, ext, basePath, title) {
             const outFile = `${basePath}.${ext}`;
 
             await downloadFile(videoFormats[0].url, rawVideo, 300000);
-            if (audioFormats.length > 0) {
-                await downloadFile(audioFormats[0].url, rawAudio, 120000);
-            }
+            if (audioFormats.length > 0) await downloadFile(audioFormats[0].url, rawAudio, 120000);
 
             await new Promise((resolve, reject) => {
                 const args = ['-y', '-i', rawVideo];
@@ -280,7 +449,7 @@ async function downloadFromInvidious(videoId, tipo, ext, basePath, title) {
 }
 
 /* ═══════════════════════════════════════════
-   ESTRATEGIAS YT-DLP
+   ESTRATEGIAS YT-DLP YOUTUBE
 ═══════════════════════════════════════════ */
 function buildYouTubeStrategies(tipo, ext, basePath, url, cookiesFile) {
     const strategies = [];
@@ -292,7 +461,9 @@ function buildYouTubeStrategies(tipo, ext, basePath, url, cookiesFile) {
     }
     const common = ['--no-warnings', '--no-check-certificates', '--geo-bypass', '--retries', '3', '--fragment-retries', '3'];
 
-    ['tv', 'tv_downgraded', 'android_vr', 'web', 'mweb', 'ios'].forEach(client => {
+    // El extractor 'tv' es el más efectivo contra bot detection en datacenter
+    const clients = ['tv', 'tv_downgraded', 'android_vr', 'web', 'mweb', 'ios'];
+    clients.forEach(client => {
         const extractorArg = `--extractor-args youtube:player_client=${client}`;
         if (tipo === 'audio') {
             strategies.push([...common, ...hasCookies, ...tokenArgs, extractorArg, '-x', '--audio-format', ext, '--audio-quality', '0', '-o', basePath, url]);
@@ -306,79 +477,59 @@ function buildYouTubeStrategies(tipo, ext, basePath, url, cookiesFile) {
     return strategies;
 }
 
-function buildTikTokStrategies(tipo, ext, basePath, url, cookiesFile, mode = 'video') {
-    const strategies = [];
-    const hasCookies = fs.existsSync(cookiesFile) ? ['--cookies', cookiesFile] : [];
-    const common = ['--no-warnings', '--no-check-certificates', '--geo-bypass', '--retries', '3'];
-
-    if (isTikTokPhoto(url) && mode === 'audio') {
-        const videoUrl = url.replace('/photo/', '/video/');
-        strategies.push([...common, ...hasCookies, '-x', '--audio-format', ext, '--audio-quality', '0', '-o', basePath, videoUrl]);
-        strategies.push([...common, ...hasCookies, '-f', 'bestaudio', '-x', '--audio-format', 'mp3', '-o', basePath, videoUrl]);
-    } else {
-        if (tipo === 'audio') {
-            strategies.push([...common, ...hasCookies, '-x', '--audio-format', ext, '--audio-quality', '0', '-o', basePath, url]);
-        } else {
-            strategies.push([...common, ...hasCookies, '-f', 'best', '--merge-output-format', ext, '-o', basePath, url]);
-        }
-        strategies.push([...common, ...hasCookies, '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', '-f', 'best', '-o', basePath, url]);
-    }
-    return strategies;
-}
-
 /* ═══════════════════════════════════════════
-   TIKTOK SLIDESHOW HANDLER
+   TIKTOK SLIDESHOW HANDLER - NUEVO
 ═══════════════════════════════════════════ */
-async function handleTikTokSlideshow(url, basePath, title, res, cookiesFile) {
+async function handleTikTokSlideshow(url, basePath, title, res) {
     const slideshowDir = basePath + '_slideshow';
     fs.mkdirSync(slideshowDir, { recursive: true });
+
     try {
-        const videoUrl = url.replace('/photo/', '/video/');
-        const infoArgs = ['--dump-json', '--no-warnings', '--no-playlist'];
-        if (fs.existsSync(cookiesFile)) infoArgs.push('--cookies', cookiesFile);
-        const out = await runYtDlp([...infoArgs, videoUrl], 30000);
-        const data = JSON.parse(out);
+        console.log('[tiktok-slideshow] Extrayendo imágenes...');
+        const imageUrls = await extractTikTokSlideshowImages(url);
+        console.log(`[tiktok-slideshow] ${imageUrls.length} imágenes encontradas`);
 
-        let imageUrls = [];
-        if (data.thumbnails && data.thumbnails.length > 1) {
-            imageUrls = data.thumbnails.filter(t => t.url && !t.url.includes('music')).map(t => t.url);
-        }
-        if (data.formats) {
-            data.formats.forEach(f => {
-                if (f.url && (f.ext === 'jpg' || f.ext === 'jpeg' || f.ext === 'png' || f.url.includes('.jpg'))) {
-                    if (!imageUrls.includes(f.url)) imageUrls.push(f.url);
-                }
-            });
+        if (imageUrls.length === 0) {
+            throw new Error('No se encontraron imágenes en el slideshow. Verifica que la URL sea pública.');
         }
 
+        // Descargar audio
+        console.log('[tiktok-slideshow] Buscando audio...');
         let audioFile = null;
         try {
-            await runYtDlp([
-                '--no-warnings', '--no-check-certificates',
-                ...(fs.existsSync(cookiesFile) ? ['--cookies', cookiesFile] : []),
-                '-x', '--audio-format', 'mp3', '--audio-quality', '0',
-                '-o', path.join(slideshowDir, 'audio'),
-                videoUrl
-            ]);
-            if (fs.existsSync(path.join(slideshowDir, 'audio.mp3'))) {
+            const audioUrl = await extractTikTokSlideshowAudio(url);
+            if (audioUrl) {
                 audioFile = path.join(slideshowDir, 'audio.mp3');
+                await downloadFile(audioUrl, audioFile, 60000);
+                console.log('[tiktok-slideshow] Audio descargado');
             }
-        } catch (e) { console.warn('[slideshow] No audio:', e.message); }
+        } catch (e) { 
+            console.warn('[tiktok-slideshow] No se pudo descargar audio:', e.message); 
+        }
 
+        // Descargar imágenes
         const downloadedImages = [];
         for (let i = 0; i < imageUrls.length; i++) {
             try {
-                const imgPath = path.join(slideshowDir, `image_${String(i+1).padStart(2,'0')}.jpg`);
-                await downloadFile(imageUrls[i], imgPath);
+                const ext = path.extname(new URL(imageUrls[i]).pathname).slice(1) || 'jpg';
+                const imgPath = path.join(slideshowDir, `image_${String(i+1).padStart(2,'0')}.${ext}`);
+                await downloadFile(imageUrls[i], imgPath, 30000);
                 downloadedImages.push(imgPath);
-            } catch (e) { console.warn(`[slideshow] Falló imagen ${i+1}:`, e.message); }
+                console.log(`[tiktok-slideshow] Imagen ${i+1}/${imageUrls.length} OK`);
+            } catch (e) {
+                console.warn(`[tiktok-slideshow] Falló imagen ${i+1}:`, e.message);
+            }
         }
 
-        if (downloadedImages.length === 0) throw new Error('No se pudieron descargar las imágenes');
+        if (downloadedImages.length === 0) {
+            throw new Error('No se pudieron descargar las imágenes del slideshow');
+        }
 
+        // Crear ZIP
         const zipPath = basePath + '.zip';
         const output = fs.createWriteStream(zipPath);
         const archive = archiver('zip', { zlib: { level: 9 } });
+
         await new Promise((resolve, reject) => {
             output.on('close', resolve);
             archive.on('error', reject);
@@ -392,11 +543,16 @@ async function handleTikTokSlideshow(url, basePath, title, res, cookiesFile) {
         res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(title)}_slideshow.zip"`);
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('Content-Length', stat.size);
+
         const stream = fs.createReadStream(zipPath);
         stream.pipe(res);
         stream.on('close', () => cleanup(basePath));
         stream.on('error', () => { cleanup(basePath); if (!res.headersSent) res.status(500).end(); });
-    } catch (err) { cleanup(basePath); throw err; }
+
+    } catch (err) {
+        cleanup(basePath);
+        throw err;
+    }
 }
 
 /* ═══════════════════════════════════════════
@@ -414,13 +570,49 @@ app.get('/api/info', async (req, res) => {
     const tokenArgs = [];
     if (tokens.po_token && tokens.visitor_data) tokenArgs.push('--extractor-args', `youtube:po_token=${tokens.po_token};visitor_data=${tokens.visitor_data}`);
 
+    // TikTok slideshow: obtener info directamente del HTML
+    if (platform === 'tiktok' && (isTikTokPhoto(url) || isTikTokShortUrl(url))) {
+        try {
+            const resolvedUrl = await resolveTikTokUrl(url);
+            const isPhoto = isTikTokPhoto(resolvedUrl);
+            const { data: html } = await httpGet(resolvedUrl, { timeout: 15000 });
+
+            // Extraer título
+            const titleMatch = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]+)"/i);
+            const title = titleMatch ? titleMatch[1] : 'TikTok Slideshow';
+
+            // Extraer thumbnail
+            const thumbMatch = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/i);
+            const thumbnail = thumbMatch ? thumbMatch[1] : '';
+
+            // Extraer autor
+            const authorMatch = html.match(/<meta[^>]*property="og:description"[^>]*content="([^"]+)"/i);
+            const author = authorMatch ? authorMatch[1].split('·')[0].trim() : '';
+
+            // Contar imágenes
+            const imageUrls = await extractTikTokSlideshowImages(url);
+
+            return res.json({
+                title: sanitize(title),
+                duration: 0,
+                thumbnail,
+                uploader: author,
+                platform: 'tiktok',
+                isSlideshow: isPhoto || imageUrls.length > 1,
+                imageCount: imageUrls.length,
+                hasCookies: fs.existsSync(cookiesFile),
+                hasTokens: !!(tokens.po_token && tokens.visitor_data)
+            });
+        } catch (e) {
+            console.error('[info] Error TikTok:', e.message);
+        }
+    }
+
     const infoStrategies = [];
     if (platform === 'youtube') {
         ['tv', 'tv_downgraded', 'android_vr', 'mweb'].forEach(client => {
             infoStrategies.push(['--dump-json', '--no-playlist', '--no-warnings', '--extractor-args', `youtube:player_client=${client}`, ...hasCookies, ...tokenArgs, url]);
         });
-    } else if (platform === 'tiktok' && isTikTokPhoto(url)) {
-        infoStrategies.push(['--dump-json', '--no-warnings', '--no-playlist', ...hasCookies, url.replace('/photo/', '/video/')]);
     } else {
         infoStrategies.push(['--dump-json', '--no-playlist', '--no-warnings', ...hasCookies, url]);
     }
@@ -431,10 +623,9 @@ app.get('/api/info', async (req, res) => {
             console.log(`[info] ${platform} | strategy ${i + 1}/${infoStrategies.length}`);
             const out = await runYtDlp(infoStrategies[i], 30000);
             const d = JSON.parse(out);
-            const isSlideshow = platform === 'tiktok' && isTikTokPhoto(url);
             return res.json({
                 title: d.title || 'Sin título', duration: d.duration, thumbnail: d.thumbnail,
-                uploader: d.uploader, platform, isSlideshow,
+                uploader: d.uploader, platform, isSlideshow: false,
                 formats_count: d.formats ? d.formats.length : 0,
                 description: d.description?.substring(0, 200),
                 hasCookies: fs.existsSync(cookiesFile), hasTokens: !!(tokens.po_token && tokens.visitor_data)
@@ -442,30 +633,25 @@ app.get('/api/info', async (req, res) => {
         } catch (e) { lastErr = e; }
     }
 
-    // Fallback a Invidious para YouTube si yt-dlp falla
+    // Fallback Invidious para YouTube
     if (platform === 'youtube') {
         const videoId = extractYouTubeId(url);
         if (videoId) {
             try {
                 const { data } = await getInvidiousVideoInfo(videoId);
                 return res.json({
-                    title: data.title || 'Sin título',
-                    duration: data.lengthSeconds,
-                    thumbnail: data.videoThumbnails?.[0]?.url || '',
-                    uploader: data.author,
-                    platform: 'youtube',
-                    isSlideshow: false,
+                    title: data.title || 'Sin título', duration: data.lengthSeconds,
+                    thumbnail: data.videoThumbnails?.[0]?.url || '', uploader: data.author,
+                    platform: 'youtube', isSlideshow: false,
                     formats_count: (data.formatStreams?.length || 0) + (data.adaptiveFormats?.length || 0),
-                    description: '',
-                    hasCookies: fs.existsSync(cookiesFile),
-                    hasTokens: !!(tokens.po_token && tokens.visitor_data),
+                    hasCookies: fs.existsSync(cookiesFile), hasTokens: !!(tokens.po_token && tokens.visitor_data),
                     source: 'invidious'
                 });
             } catch (e) { console.warn('[info] Invidious fallback falló:', e.message); }
         }
     }
 
-    res.status(500).json({ error: lastErr?.message || 'No se pudo obtener información', tip: 'YouTube bloquea IPs de datacenter. Prueba el fallback de Invidious o PO Token.' });
+    res.status(500).json({ error: lastErr?.message || 'No se pudo obtener información', tip: 'YouTube bloquea IPs de datacenter. Prueba el modo Invidious.' });
 });
 
 app.post('/api/download', async (req, res) => {
@@ -480,6 +666,21 @@ app.post('/api/download', async (req, res) => {
     let usedInvidious = false;
 
     try {
+        // TIKTOK SLIDESHOW
+        if (platform === 'tiktok' && (isTikTokPhoto(url) || isTikTokShortUrl(url))) {
+            const resolvedUrl = await resolveTikTokUrl(url);
+            if (isTikTokPhoto(resolvedUrl) || mode === 'images') {
+                // Obtener título del HTML
+                try {
+                    const { data: html } = await httpGet(resolvedUrl, { timeout: 10000 });
+                    const titleMatch = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]+)"/i);
+                    if (titleMatch) title = sanitize(titleMatch[1]);
+                } catch (e) {}
+                return await handleTikTokSlideshow(url, basePath, title, res);
+            }
+            // Si no es slideshow, continuar con yt-dlp normal
+        }
+
         // Obtener título
         try {
             const infoArgs = ['--dump-json', '--no-playlist', '--no-warnings'];
@@ -489,15 +690,9 @@ app.post('/api/download', async (req, res) => {
                 if (tokens.po_token && tokens.visitor_data) infoArgs.push('--extractor-args', `youtube:po_token=${tokens.po_token};visitor_data=${tokens.visitor_data}`);
                 infoArgs.push('--extractor-args', 'youtube:player_client=tv_downgraded');
             }
-            const targetUrl = (platform === 'tiktok' && isTikTokPhoto(url)) ? url.replace('/photo/', '/video/') : url;
-            const out = await runYtDlp([...infoArgs, targetUrl], 30000);
+            const out = await runYtDlp([...infoArgs, url], 30000);
             title = sanitize(JSON.parse(out).title);
         } catch (e) { console.warn('[warn] Sin título:', e.message); }
-
-        // TikTok Photo modo imágenes
-        if (platform === 'tiktok' && isTikTokPhoto(url) && mode === 'images') {
-            return await handleTikTokSlideshow(url, basePath, title, res, cookiesFile);
-        }
 
         const ext = formato || (tipo === 'audio' ? 'mp3' : 'mp4');
         let strategies = [];
@@ -505,7 +700,14 @@ app.post('/api/download', async (req, res) => {
         if (platform === 'youtube') {
             strategies = buildYouTubeStrategies(tipo, ext, basePath, url, cookiesFile);
         } else if (platform === 'tiktok') {
-            strategies = buildTikTokStrategies(tipo, ext, basePath, url, cookiesFile, mode);
+            const common = ['--no-warnings', '--no-check-certificates', '--geo-bypass', '--retries', '3'];
+            const hasCookies = fs.existsSync(cookiesFile) ? ['--cookies', cookiesFile] : [];
+            if (tipo === 'audio') {
+                strategies.push([...common, ...hasCookies, '-x', '--audio-format', ext, '--audio-quality', '0', '-o', basePath, url]);
+            } else {
+                strategies.push([...common, ...hasCookies, '-f', 'best', '--merge-output-format', ext, '-o', basePath, url]);
+            }
+            strategies.push([...common, ...hasCookies, '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', '-f', 'best', '-o', basePath, url]);
         } else {
             const common = ['--no-warnings', '--no-check-certificates', '--geo-bypass', '--retries', '3'];
             const hasCookies = fs.existsSync(cookiesFile) ? ['--cookies', cookiesFile] : [];
@@ -514,7 +716,7 @@ app.post('/api/download', async (req, res) => {
             strategies.push([...common, ...hasCookies, '-f', 'best', '-o', basePath, url]);
         }
 
-        // Ejecutar yt-dlp con fallback
+        // Ejecutar yt-dlp
         let finalFile = null, lastErr = null, isBotError = false;
         for (let i = 0; i < strategies.length; i++) {
             try {
@@ -534,7 +736,7 @@ app.post('/api/download', async (req, res) => {
             }
         }
 
-        // FALLBACK A INVIDIOUS para YouTube si hubo error de bot
+        // FALLBACK INVIDIOUS para YouTube
         if (!finalFile && platform === 'youtube' && isBotError) {
             const videoId = extractYouTubeId(url);
             if (videoId) {
@@ -577,9 +779,9 @@ app.post('/api/download', async (req, res) => {
         console.error('[dl] Error:', err.message);
         if (!res.headersSent) {
             const tip = platform === 'youtube' && (err.message?.includes('bot') || err.message?.includes('Sign in'))
-                ? 'YouTube bloquea IPs de datacenter. El servidor intentó Invidious como fallback. Si sigue fallando, prueba PO Token o ejecuta el servidor en local.'
-                : platform === 'tiktok' && isTikTokPhoto(url) && mode === 'video'
-                ? 'Los carruseles de TikTok son imágenes. Usa "Imágenes + Audio" o "Audio solo".'
+                ? 'YouTube bloquea IPs de datacenter. El servidor intentó Invidious. Si sigue fallando, ejecuta el servidor en local con tu IP de hogar.'
+                : platform === 'tiktok' && (isTikTokPhoto(url) || isTikTokShortUrl(url))
+                ? 'Verifica que la URL de TikTok sea pública y accesible sin login.'
                 : null;
             res.status(500).json({ error: err.message || 'Error en descarga', tip });
         }
@@ -622,5 +824,4 @@ execFile(YTDLP, ['--version'], { timeout: 10000 }, (err, stdout) => {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`[startup] Puerto ${PORT}`);
     console.log(`[startup] TMP: ${TMP_DIR}`);
-    console.log(`[startup] Invidious instances: ${INVIDIOUS_INSTANCES.length}`);
 });
