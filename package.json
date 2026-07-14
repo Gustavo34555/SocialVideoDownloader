@@ -1,29 +1,13 @@
 {
-  "name": "descargador-universal-pro",
-  "version": "3.0.0",
-  "description": "Descargador universal con anti-bot para YouTube y soporte para carruseles de TikTok. Compatible con 1000+ sitios.",
+  "name": "descargador-pro",
+  "version": "2.0.0",
+  "description": "Descargador universal impulsado por yt-dlp",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
   },
   "dependencies": {
-    "archiver": "^7.0.1",
     "cors": "^2.8.5",
     "express": "^4.19.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "keywords": [
-    "yt-dlp",
-    "youtube-downloader",
-    "tiktok-downloader",
-    "tiktok-slideshow",
-    "video-downloader",
-    "anti-bot",
-    "po-token"
-  ],
-  "author": "",
-  "license": "MIT"
+  }
 }
