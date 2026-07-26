@@ -35,7 +35,6 @@ app.use(express.static(__dirname));
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// Cookies: prioridad env var YOUTUBE_COOKIES > archivo cookies.txt
 const COOKIES_PATH = path.join(os.tmpdir(), 'yt_cookies.txt');
 let hasCookies = false;
 
@@ -43,18 +42,28 @@ if (process.env.YOUTUBE_COOKIES) {
     const cookieContent = process.env.YOUTUBE_COOKIES.trim();
     fs.writeFileSync(COOKIES_PATH, cookieContent);
     hasCookies = true;
-    const lines = cookieContent.split('\n').length;
-    console.log(`[SISTEMA] Cookies OK desde YOUTUBE_COOKIES (${lines} lineas)`);
+    console.log(`[SISTEMA] Cookies OK desde YOUTUBE_COOKIES (${cookieContent.split('\n').length} lineas)`);
 } else if (fs.existsSync('cookies.txt')) {
     fs.copyFileSync('cookies.txt', COOKIES_PATH);
     hasCookies = true;
     console.log('[SISTEMA] Cookies OK desde cookies.txt');
 } else {
-    console.log('[SISTEMA] Sin cookies - YouTube estara bloqueado');
+    console.log('[SISTEMA] Sin cookies - usando Invidious como proxy para YouTube');
 }
 
 // ==========================================
-// RATE LIMITING BASICO (en memoria)
+// INSTANCIAS INVIDIOUS (fallback para YouTube)
+// ==========================================
+const INVIDIOUS_INSTANCES = [
+    'https://vid.puffyan.us',
+    'https://invidious.fdn.fr',
+    'https://yewtu.be',
+    'https://inv.nadeko.net',
+    'https://invidious.privacyredirect.com'
+];
+
+// ==========================================
+// RATE LIMITING
 // ==========================================
 const RATE_WINDOW = 60000;
 const RATE_MAX = 15;
@@ -101,6 +110,17 @@ function isYoutube(url) {
     return /youtube\.com|youtu\.be|m\.youtube\.com/i.test(url);
 }
 
+function extractYoutubeId(url) {
+    try {
+        const u = new URL(url);
+        if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('/')[0];
+        if (u.searchParams.has('v')) return u.searchParams.get('v');
+        const match = u.pathname.match(/\/(embed|v|shorts)\/([^/?]+)/);
+        if (match) return match[2];
+    } catch (_) {}
+    return null;
+}
+
 function getYoutubeArgs() {
     return [
         '--extractor-args', 'youtube:player_client=tv_downgraded,web,android_vr',
@@ -113,7 +133,69 @@ function getYoutubeArgs() {
 }
 
 // ==========================================
-// UTILIDADES Y RESOLUCION DE URL
+// INVIDIOUS API (fallback YouTube)
+// ==========================================
+function httpGet(url, timeout = 15000) {
+    return new Promise((resolve, reject) => {
+        const proto = url.startsWith('https') ? https : http;
+        const req = proto.get(url, { headers: { 'User-Agent': USER_AGENT } }, response => {
+            let data = '';
+            response.on('data', chunk => data += chunk);
+            response.on('end', () => {
+                if (response.statusCode >= 200 && response.statusCode < 300) {
+                    resolve(data);
+                } else {
+                    reject(new Error(`HTTP ${response.statusCode}`));
+                }
+            });
+        });
+        req.on('error', reject);
+        req.setTimeout(timeout, () => req.destroy(new Error('Timeout')));
+    });
+}
+
+async function fetchInvidiousInfo(videoId) {
+    for (const instance of INVIDIOUS_INSTANCES) {
+        try {
+            const url = `${instance}/api/v1/videos/${videoId}`;
+            const raw = await httpGet(url, 10000);
+            const data = JSON.parse(raw);
+            if (data.error) continue;
+
+            const formatStreams = (data.format_streams || []).map(f => ({
+                url: f.url,
+                quality: f.qualityLabel || `${f.resolution}p`,
+                resolution: parseInt(f.resolution) || 0,
+                container: f.container || 'mp4',
+                type: f.type || '',
+                audio: true
+            }));
+
+            const adaptive = (data.adaptive_formats || []).map(f => ({
+                url: f.url,
+                quality: f.qualityLabel || `${f.resolution || ''}p`,
+                resolution: parseInt(f.resolution) || 0,
+                container: f.container || 'mp4',
+                type: f.type || '',
+                audio: (f.type || '').startsWith('audio')
+            }));
+
+            return {
+                titulo: data.title || 'Video de YouTube',
+                thumbnail: data.videoThumbnails?.find(t => t.quality === 'maxresdefault')?.url
+                    || data.videoThumbnails?.find(t => t.quality === 'high')?.url
+                    || null,
+                platform: 'YouTube (Invidious)',
+                streams: formatStreams,
+                adaptive: adaptive
+            };
+        } catch (_) { continue; }
+    }
+    return null;
+}
+
+// ==========================================
+// UTILIDADES
 // ==========================================
 function followRedirect(url, depth = 0) {
     return new Promise((resolve, reject) => {
@@ -161,12 +243,12 @@ async function prepareUrl(inputUrl) {
 }
 
 // ==========================================
-// ENDPOINT DE SALUD (para Render)
+// ENDPOINT DE SALUD
 // ==========================================
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
 // ==========================================
-// INTERACCIÓN CON YT-DLP
+// ANALYZE - yt-dlp con fallback Invidious para YouTube
 // ==========================================
 app.post('/api/analyze', rateLimit, async (req, res) => {
     if (!req.body.url) return res.status(400).json({ error: 'Ingresa un enlace valido.' });
@@ -180,6 +262,41 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
 
     const platform = detectPlatform(targetUrl);
 
+    // Para YouTube: intentar Invidious primero (sin dependencia de cookies)
+    if (isYoutube(targetUrl) && !hasCookies) {
+        const videoId = extractYoutubeId(targetUrl);
+        if (videoId) {
+            console.log(`[YOUTUBE] Intentando Invidious para ${videoId}...`);
+            const info = await fetchInvidiousInfo(videoId);
+            if (info) {
+                console.log(`[YOUTUBE] Invidious OK: ${info.titulo}`);
+                const videos = info.streams.filter(s => !s.audio).map(s => ({
+                    id: s.url,
+                    calidad: s.quality,
+                    ext: s.container,
+                    tieneAudio: s.audio
+                }));
+                const audios = info.adaptive.filter(s => s.audio).map(s => ({
+                    id: s.url,
+                    calidad: s.quality,
+                    ext: s.container
+                }));
+                return res.json({
+                    titulo: info.titulo,
+                    plataforma: info.platform,
+                    platform: 'youtube',
+                    thumbnail: info.thumbnail,
+                    puedeVideo: videos.length > 0,
+                    puedeAudio: audios.length > 0,
+                    formatos: { videos, audios },
+                    invidious: true
+                });
+            }
+            console.log('[YOUTUBE] Invidious fallo, intentando yt-dlp...');
+        }
+    }
+
+    // Fallback: yt-dlp
     const args = ['--dump-json', '--no-warnings'];
     if (hasCookies) args.push('--cookies', COOKIES_PATH);
     if (isYoutube(targetUrl)) {
@@ -224,6 +341,9 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
     });
 });
 
+// ==========================================
+// DOWNLOAD - con soporte Invidious para YouTube
+// ==========================================
 app.get('/api/download', rateLimit, async (req, res) => {
     let targetUrl;
     try {
@@ -233,6 +353,39 @@ app.get('/api/download', rateLimit, async (req, res) => {
     }
 
     const { formatId = 'best', tipo = 'video' } = req.query;
+
+    // Si el formatId es una URL de Invidious, descargar directamente
+    if (formatId.startsWith('http')) {
+        const tmpFile = path.join(os.tmpdir(), `dl_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
+        try {
+            const proto = formatId.startsWith('https') ? https : http;
+            await new Promise((resolve, reject) => {
+                const req2 = proto.get(formatId, {
+                    headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://invidious.io/' }
+                }, response => {
+                    if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
+                        const loc = response.headers.location;
+                        if (loc) {
+                            const newReq = (loc.startsWith('https') ? https : http).get(loc, {
+                                headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://invidious.io/' }
+                            }, response2 => pipeToFile(response2, tmpFile, res, tipo, resolve, reject));
+                            newReq.on('error', reject);
+                            return;
+                        }
+                    }
+                    pipeToFile(response, tmpFile, res, tipo, resolve, reject);
+                });
+                req2.on('error', reject);
+                req2.setTimeout(60000, () => req2.destroy(new Error('Timeout')));
+            });
+        } catch (e) {
+            console.error('[DOWNLOAD] Error:', e.message);
+            if (!res.headersSent) res.status(500).send('Error al descargar desde Invidious.');
+        }
+        return;
+    }
+
+    // Fallback: yt-dlp
     const tmpFile = path.join(os.tmpdir(), `dl_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
 
     let formatArg = formatId === 'best'
@@ -286,6 +439,39 @@ app.get('/api/download', rateLimit, async (req, res) => {
         }
     });
 });
+
+function pipeToFile(response, tmpFile, res, tipo, resolve, reject) {
+    if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        const loc = response.headers.location;
+        const proto = loc.startsWith('https') ? https : http;
+        proto.get(loc, { headers: { 'User-Agent': USER_AGENT } }, r => pipeToFile(r, tmpFile, res, tipo, resolve, reject)).on('error', reject);
+        return;
+    }
+    if (response.statusCode !== 200) {
+        response.resume();
+        return reject(new Error(`HTTP ${response.statusCode}`));
+    }
+    const fileStream = fs.createWriteStream(tmpFile);
+    response.pipe(fileStream);
+    fileStream.on('finish', async () => {
+        try {
+            const stat = await fsPromises.stat(tmpFile);
+            const finalExt = tipo === 'audio' ? 'mp3' : 'mp4';
+            const contentType = tipo === 'audio' ? 'audio/mpeg' : 'video/mp4';
+            res.setHeader('Content-Disposition', `attachment; filename="Descarga_${Date.now()}.${finalExt}"`);
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Content-Length', stat.size);
+            const readStream = fs.createReadStream(tmpFile);
+            readStream.pipe(res);
+            readStream.on('close', () => fsPromises.unlink(tmpFile).catch(() => {}));
+            resolve();
+        } catch (e) {
+            fsPromises.unlink(tmpFile).catch(() => {});
+            reject(e);
+        }
+    });
+    fileStream.on('error', e => { fsPromises.unlink(tmpFile).catch(() => {}); reject(e); });
+}
 
 // ==========================================
 // INICIO DEL SERVIDOR
