@@ -40,15 +40,17 @@ const COOKIES_PATH = path.join(os.tmpdir(), 'yt_cookies.txt');
 let hasCookies = false;
 
 if (process.env.YOUTUBE_COOKIES) {
-    fs.writeFileSync(COOKIES_PATH, process.env.YOUTUBE_COOKIES);
+    const cookieContent = process.env.YOUTUBE_COOKIES.trim();
+    fs.writeFileSync(COOKIES_PATH, cookieContent);
     hasCookies = true;
-    console.log('[SISTEMA] Cookies cargadas desde variable YOUTUBE_COOKIES');
+    const lines = cookieContent.split('\n').length;
+    console.log(`[SISTEMA] Cookies OK desde YOUTUBE_COOKIES (${lines} lineas)`);
 } else if (fs.existsSync('cookies.txt')) {
     fs.copyFileSync('cookies.txt', COOKIES_PATH);
     hasCookies = true;
-    console.log('[SISTEMA] Cookies cargadas desde cookies.txt');
+    console.log('[SISTEMA] Cookies OK desde cookies.txt');
 } else {
-    console.log('[SISTEMA] Sin cookies. YouTube puede estar bloqueado.');
+    console.log('[SISTEMA] Sin cookies - YouTube estara bloqueado');
 }
 
 // ==========================================
