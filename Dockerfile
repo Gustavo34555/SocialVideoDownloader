@@ -1,5 +1,5 @@
 # Sistema operativo base ultraligero
-FROM node:18-bullseye-slim
+FROM node:20-bookworm-slim
 
 # Instalación de dependencias del sistema (FFmpeg y Python son vitales para yt-dlp)
 RUN apt-get update && apt-get install -y \
