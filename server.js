@@ -35,8 +35,21 @@ app.use(express.static(__dirname));
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-const hasCookies = fs.existsSync('cookies.txt');
-console.log(`[SISTEMA] Archivo cookies.txt detectado: ${hasCookies ? 'SI' : 'NO'}`);
+// Cookies: prioridad env var YOUTUBE_COOKIES > archivo cookies.txt
+const COOKIES_PATH = path.join(os.tmpdir(), 'yt_cookies.txt');
+let hasCookies = false;
+
+if (process.env.YOUTUBE_COOKIES) {
+    fs.writeFileSync(COOKIES_PATH, process.env.YOUTUBE_COOKIES);
+    hasCookies = true;
+    console.log('[SISTEMA] Cookies cargadas desde variable YOUTUBE_COOKIES');
+} else if (fs.existsSync('cookies.txt')) {
+    fs.copyFileSync('cookies.txt', COOKIES_PATH);
+    hasCookies = true;
+    console.log('[SISTEMA] Cookies cargadas desde cookies.txt');
+} else {
+    console.log('[SISTEMA] Sin cookies. YouTube puede estar bloqueado.');
+}
 
 // ==========================================
 // RATE LIMITING BASICO (en memoria)
@@ -166,7 +179,7 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
     const platform = detectPlatform(targetUrl);
 
     const args = ['--dump-json', '--no-warnings'];
-    if (hasCookies) args.push('--cookies', 'cookies.txt');
+    if (hasCookies) args.push('--cookies', COOKIES_PATH);
     if (isYoutube(targetUrl)) {
         args.push(...getYoutubeArgs());
     }
@@ -225,7 +238,7 @@ app.get('/api/download', rateLimit, async (req, res) => {
         : (tipo === 'video' ? `${formatId}+bestaudio/best` : formatId);
 
     const args = ['-f', formatArg, '--merge-output-format', 'mp4', '-o', tmpFile, '--no-warnings'];
-    if (hasCookies) args.push('--cookies', 'cookies.txt');
+    if (hasCookies) args.push('--cookies', COOKIES_PATH);
     if (isYoutube(targetUrl)) {
         args.push(...getYoutubeArgs());
     }
