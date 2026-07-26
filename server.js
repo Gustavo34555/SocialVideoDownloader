@@ -13,9 +13,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ==========================================
-// SEGURIDAD: Cabeceras y archivos bloqueados
-// ==========================================
 const BLOCKED_STATIC = new Set([
     'server.js', 'package.json', 'package-lock.json',
     'Dockerfile', '.dockerignore', '.gitignore', 'README.md'
@@ -67,6 +64,31 @@ setInterval(() => {
         if (now - entry.start > RATE_WINDOW * 2) rateHits.delete(ip);
     }
 }, RATE_WINDOW * 2);
+
+// ==========================================
+// DETECCION DE PLATAFORMA
+// ==========================================
+function detectPlatform(url) {
+    const u = url.toLowerCase();
+    if (/youtube\.com|youtu\.be|m\.youtube\.com/i.test(u)) return 'youtube';
+    if (/tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com/i.test(u)) return 'tiktok';
+    if (/instagram\.com/i.test(u)) return 'instagram';
+    if (/twitter\.com|x\.com/i.test(u)) return 'twitter';
+    if (/facebook\.com|fb\.watch|web\.facebook\.com/i.test(u)) return 'facebook';
+    if (/twitch\.tv/i.test(u)) return 'twitch';
+    if (/soundcloud\.com/i.test(u)) return 'soundcloud';
+    if (/vimeo\.com/i.test(u)) return 'vimeo';
+    if (/reddit\.com/i.test(u)) return 'reddit';
+    return 'otro';
+}
+
+function isYoutube(url) {
+    return /youtube\.com|youtu\.be|m\.youtube\.com/i.test(url);
+}
+
+function getYoutubeExtractorArgs() {
+    return 'youtube:player_client=web,android_vr,tv';
+}
 
 // ==========================================
 // UTILIDADES Y RESOLUCION DE URL
@@ -134,8 +156,14 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
         return res.status(400).json({ error: e.message || 'URL no valida.' });
     }
 
+    const platform = detectPlatform(targetUrl);
+
     const args = ['--dump-json', '--no-warnings'];
     if (hasCookies) args.push('--cookies', 'cookies.txt');
+    if (isYoutube(targetUrl)) {
+        args.push('--extractor-args', getYoutubeExtractorArgs());
+        args.push('--force-ipv4');
+    }
     args.push(targetUrl);
 
     execFile('yt-dlp', args, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
@@ -163,6 +191,7 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
             res.json({
                 titulo: data.title || data.description || 'Archivo multimedia',
                 plataforma: data.extractor_key || 'Desconocida',
+                platform: platform,
                 thumbnail: data.thumbnail || null,
                 puedeVideo: videos.length > 0,
                 puedeAudio: audios.length > 0,
@@ -191,6 +220,10 @@ app.get('/api/download', rateLimit, async (req, res) => {
 
     const args = ['-f', formatArg, '--merge-output-format', 'mp4', '-o', tmpFile, '--no-warnings'];
     if (hasCookies) args.push('--cookies', 'cookies.txt');
+    if (isYoutube(targetUrl)) {
+        args.push('--extractor-args', getYoutubeExtractorArgs());
+        args.push('--force-ipv4');
+    }
     args.push(targetUrl);
 
     const ytdlp = spawn('yt-dlp', args);
@@ -240,7 +273,6 @@ app.get('/api/download', rateLimit, async (req, res) => {
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, '0.0.0.0', () => console.log(`Servidor de Descargas activo -> Puerto ${PORT}`));
 
-// Graceful shutdown para Render
 const gracefulShutdown = (signal) => {
     console.log(`\n[SISTEMA] ${signal} recibido. Cerrando servidor...`);
     server.close(() => {

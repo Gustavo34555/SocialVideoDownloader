@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Downloader Premium</title>
+    <title>Downloader Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -11,38 +11,62 @@
             --text: #fafafa; --text-dim: #a1a1aa;
             --primary: #8b5cf6; --primary-hover: #7c3aed;
             --danger: #ef4444; --success: #10b981;
+            --yt: #ff0000; --tiktok: #00f2ea; --ig: #e1306c;
+            --twitter: #1da1f2; --fb: #1877f2; --twitch: #9146ff;
+            --sc: #ff5500; --vimeo: #1ab7ea; --reddit: #ff4500;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
         body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
-        
-        /* Contenedor Principal */
+
         .glass-card {
             background: rgba(24, 24, 27, 0.6);
             backdrop-filter: blur(12px);
             border: 1px solid var(--border);
             border-radius: 24px;
             padding: 40px 30px;
-            width: 100%; max-width: 600px;
+            width: 100%; max-width: 640px;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         }
-        
-        .header { text-align: center; margin-bottom: 30px; }
+
+        .header { text-align: center; margin-bottom: 28px; }
         .header h1 { font-size: 2.2rem; font-weight: 800; background: linear-gradient(to right, #a855f7, #ec4899); -webkit-background-clip: text; color: transparent; margin-bottom: 8px; }
         .header p { color: var(--text-dim); font-size: 0.95rem; }
 
+        /* Selector de plataforma */
+        .platform-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 24px; }
+        .platform-btn {
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            background: var(--surface); border: 2px solid var(--border); border-radius: 14px;
+            padding: 14px 6px; cursor: pointer; transition: all 0.2s ease;
+            color: var(--text-dim); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+        }
+        .platform-btn:hover { border-color: #3f3f46; transform: translateY(-2px); }
+        .platform-btn.active { border-color: var(--primary); background: rgba(139, 92, 246, 0.1); color: var(--text); }
+        .platform-btn .icon { font-size: 1.6rem; line-height: 1; }
+        .platform-btn[data-platform="youtube"] { --accent: var(--yt); }
+        .platform-btn[data-platform="tiktok"] { --accent: var(--tiktok); }
+        .platform-btn[data-platform="instagram"] { --accent: var(--ig); }
+        .platform-btn[data-platform="twitter"] { --accent: var(--twitter); }
+        .platform-btn[data-platform="facebook"] { --accent: var(--fb); }
+        .platform-btn[data-platform="twitch"] { --accent: var(--twitch); }
+        .platform-btn[data-platform="soundcloud"] { --accent: var(--sc); }
+        .platform-btn[data-platform="vimeo"] { --accent: var(--vimeo); }
+        .platform-btn[data-platform="reddit"] { --accent: var(--reddit); }
+        .platform-btn.active { border-color: var(--accent, var(--primary)); background: color-mix(in srgb, var(--accent, var(--primary)) 10%, transparent); }
+
         /* Input y Botón */
-        .input-group { display: flex; gap: 12px; margin-bottom: 25px; position: relative; }
+        .input-group { display: flex; gap: 12px; margin-bottom: 25px; }
         input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; color: var(--text); font-size: 1rem; transition: all 0.3s ease; outline: none; }
         input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2); }
         button { border: none; border-radius: 12px; padding: 0 28px; font-weight: 600; font-size: 1rem; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary { background: var(--primary); color: white; height: 54px; }
         .btn-primary:hover:not(:disabled) { background: var(--primary-hover); transform: translateY(-2px); }
         .btn-primary:disabled { opacity: 0.7; cursor: not-allowed; }
 
         /* Tarjeta de Resultados */
         .result-card { display: none; background: var(--bg); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-top: 20px; animation: slideUp 0.4s ease forwards; }
         @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        
+
         .media-info { display: flex; gap: 16px; margin-bottom: 20px; }
         .thumbnail { width: 100px; height: 100px; border-radius: 10px; object-fit: cover; background: var(--border); }
         .details { flex: 1; overflow: hidden; }
@@ -56,14 +80,26 @@
         .btn-download:hover { opacity: 0.9; transform: translateY(-2px); }
 
         /* Notificaciones (Toast) */
-        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--danger); color: white; padding: 12px 24px; border-radius: 30px; font-weight: 600; font-size: 0.9rem; opacity: 0; transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55); box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.4); }
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--danger); color: white; padding: 12px 24px; border-radius: 30px; font-weight: 600; font-size: 0.9rem; opacity: 0; transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55); box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.4); z-index: 100; }
         .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 
         /* Animación de Carga */
         .spinner { width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite; display: none; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        @media (max-width: 600px) { .input-group { flex-direction: column; } button { padding: 16px; } .media-info { flex-direction: column; align-items: center; text-align: center; } .thumbnail { width: 100%; height: 180px; } }
+        /* Indicador de descarga automática */
+        .auto-badge { display: none; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 0.85rem; color: var(--success); }
+        .auto-badge.show { display: flex; }
+
+        @media (max-width: 600px) {
+            .platform-grid { grid-template-columns: repeat(3, 1fr); }
+            .input-group { flex-direction: column; }
+            button { padding: 16px; }
+            .media-info { flex-direction: column; align-items: center; text-align: center; }
+            .thumbnail { width: 100%; height: 180px; }
+            .controls { grid-template-columns: 1fr; }
+            .btn-download { grid-column: span 1; }
+        }
     </style>
 </head>
 <body>
@@ -71,11 +107,44 @@
     <div class="glass-card">
         <div class="header">
             <h1>Downloader Pro</h1>
-            <p>Extrae video y audio en máxima calidad de cualquier plataforma</p>
+            <p>Selecciona la plataforma y pega tu enlace</p>
+        </div>
+
+        <div class="platform-grid" id="platformGrid">
+            <div class="platform-btn" data-platform="youtube" onclick="selectPlatform('youtube')">
+                <span class="icon">▶</span>YouTube
+            </div>
+            <div class="platform-btn" data-platform="tiktok" onclick="selectPlatform('tiktok')">
+                <span class="icon">♪</span>TikTok
+            </div>
+            <div class="platform-btn" data-platform="instagram" onclick="selectPlatform('instagram')">
+                <span class="icon">◎</span>Instagram
+            </div>
+            <div class="platform-btn" data-platform="twitter" onclick="selectPlatform('twitter')">
+                <span class="icon">✖</span>Twitter/X
+            </div>
+            <div class="platform-btn" data-platform="facebook" onclick="selectPlatform('facebook')">
+                <span class="icon">f</span>Facebook
+            </div>
+            <div class="platform-btn" data-platform="twitch" onclick="selectPlatform('twitch')">
+                <span class="icon">◉</span>Twitch
+            </div>
+            <div class="platform-btn" data-platform="soundcloud" onclick="selectPlatform('soundcloud')">
+                <span class="icon">☁</span>SoundCloud
+            </div>
+            <div class="platform-btn" data-platform="vimeo" onclick="selectPlatform('vimeo')">
+                <span class="icon">▶</span>Vimeo
+            </div>
+            <div class="platform-btn" data-platform="reddit" onclick="selectPlatform('reddit')">
+                <span class="icon">⊕</span>Reddit
+            </div>
+            <div class="platform-btn active" data-platform="otro" onclick="selectPlatform('otro')">
+                <span class="icon">⟳</span>Otro
+            </div>
         </div>
 
         <div class="input-group">
-            <input type="text" id="urlInput" placeholder="Pega el enlace aquí (TikTok, YouTube, IG...)" autocomplete="off">
+            <input type="text" id="urlInput" placeholder="Pega el enlace aquí..." autocomplete="off">
             <button id="analyzeBtn" class="btn-primary" onclick="analyzeUrl()">
                 <div class="spinner" id="btnSpinner"></div>
                 <span id="btnText">Analizar</span>
@@ -86,12 +155,16 @@
             <div class="media-info">
                 <img id="thumbImage" class="thumbnail" src="" alt="Miniatura">
                 <div class="details">
-                    <div id="mediaTitle" class="title">Título del video</div>
+                    <div id="mediaTitle" class="title">Titulo del video</div>
                     <span id="platformTag" class="platform-badge">Plataforma</span>
                 </div>
             </div>
 
-            <div class="controls">
+            <div class="auto-badge" id="autoBadge">
+                <span>⚡</span> Se descargara en la mejor calidad disponible
+            </div>
+
+            <div class="controls" id="controlsArea">
                 <select id="typeSelect" onchange="updateQualities()">
                     <option value="video">Formato: Video (MP4)</option>
                     <option value="audio">Formato: Audio (MP3)</option>
@@ -107,6 +180,7 @@
     <script>
         let currentData = null;
         let originalUrl = '';
+        let selectedPlatform = 'otro';
 
         const ui = {
             input: document.getElementById('urlInput'),
@@ -115,7 +189,9 @@
             btnText: document.getElementById('btnText'),
             card: document.getElementById('resultCard'),
             toast: document.getElementById('toast'),
-            typeSel: document.getElementById('typeSelect')
+            typeSel: document.getElementById('typeSelect'),
+            autoBadge: document.getElementById('autoBadge'),
+            controls: document.getElementById('controlsArea')
         };
 
         function showToast(message, isError = true) {
@@ -133,10 +209,30 @@
             if (isLoading) ui.card.style.display = 'none';
         }
 
+        function selectPlatform(platform) {
+            selectedPlatform = platform;
+            document.querySelectorAll('.platform-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.platform === platform);
+            });
+            const placeholders = {
+                youtube: 'Pega el enlace de YouTube aqui...',
+                tiktok: 'Pega el enlace de TikTok aqui...',
+                instagram: 'Pega el enlace de Instagram aqui...',
+                twitter: 'Pega el enlace de Twitter/X aqui...',
+                facebook: 'Pega el enlace de Facebook aqui...',
+                twitch: 'Pega el enlace de Twitch aqui...',
+                soundcloud: 'Pega el enlace de SoundCloud aqui...',
+                vimeo: 'Pega el enlace de Vimeo aqui...',
+                reddit: 'Pega el enlace de Reddit aqui...',
+                otro: 'Pega el enlace aqui...'
+            };
+            ui.input.placeholder = placeholders[platform] || placeholders.otro;
+        }
+
         async function analyzeUrl() {
             const url = ui.input.value.trim();
-            if (!url) return showToast("Por favor, pega un enlace válido.");
-            
+            if (!url) return showToast("Por favor, pega un enlace valido.");
+
             originalUrl = url;
             setLoading(true);
 
@@ -144,9 +240,9 @@
                 const response = await fetch('/api/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url })
+                    body: JSON.stringify({ url, platform: selectedPlatform })
                 });
-                
+
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error);
 
@@ -159,43 +255,67 @@
             }
         }
 
+        function isYouTubePlatform(data) {
+            if (selectedPlatform === 'youtube') return true;
+            const p = (data.plataforma || '').toLowerCase();
+            return p.includes('youtube');
+        }
+
         function renderData(data) {
             document.getElementById('mediaTitle').textContent = data.titulo;
             document.getElementById('platformTag').textContent = data.plataforma;
             document.getElementById('thumbImage').src = data.thumbnail || '';
-            
-            ui.typeSel.innerHTML = '';
-            if (data.puedeVideo) ui.typeSel.innerHTML += `<option value="video">Formato: Video (MP4)</option>`;
-            if (data.puedeAudio) ui.typeSel.innerHTML += `<option value="audio">Formato: Audio (MP3)</option>`;
-            
-            updateQualities();
+
+            const isYT = isYouTubePlatform(data);
+
+            if (isYT) {
+                ui.autoBadge.classList.remove('show');
+                ui.controls.style.display = 'grid';
+
+                ui.typeSel.innerHTML = '';
+                if (data.puedeVideo) ui.typeSel.innerHTML += '<option value="video">Formato: Video (MP4)</option>';
+                if (data.puedeAudio) ui.typeSel.innerHTML += '<option value="audio">Formato: Audio (MP3)</option>';
+                updateQualities();
+            } else {
+                ui.autoBadge.classList.add('show');
+                ui.controls.style.display = 'none';
+            }
+
             ui.card.style.display = 'block';
         }
 
         function updateQualities() {
             const type = ui.typeSel.value;
             const select = document.getElementById('qualitySelect');
-            select.innerHTML = '<option value="best">🏆 Mejor calidad (Automático)</option>';
-            
+            select.innerHTML = '<option value="best">Mejor calidad (Automatico)</option>';
+
+            if (!currentData) return;
             const list = type === 'video' ? currentData.formatos.videos : currentData.formatos.audios;
-            
-            // Filtramos duplicados para no abrumar al usuario
+
             const uniqueQualities = new Set();
             list.forEach(f => {
                 if (!uniqueQualities.has(f.calidad)) {
                     uniqueQualities.add(f.calidad);
-                    select.innerHTML += `<option value="${f.id}">${f.calidad}</option>`;
+                    select.innerHTML += '<option value="' + f.id + '">' + f.calidad + '</option>';
                 }
             });
         }
 
         function startDownload() {
-            const formatId = document.getElementById('qualitySelect').value;
-            const type = ui.typeSel.value;
-            showToast("Preparando archivo. La descarga iniciará en breve...", false);
-            
+            const isYT = isYouTubePlatform(currentData);
+
+            let formatId = 'best';
+            let type = 'video';
+
+            if (isYT) {
+                formatId = document.getElementById('qualitySelect').value;
+                type = ui.typeSel.value;
+            }
+
+            showToast("Preparando archivo. La descarga iniciara en breve...", false);
+
             const params = new URLSearchParams({ url: originalUrl, formatId, tipo: type });
-            window.location.href = `/api/download?${params.toString()}`;
+            window.location.href = '/api/download?' + params.toString();
         }
 
         ui.input.addEventListener('keypress', e => { if (e.key === 'Enter') analyzeUrl(); });
