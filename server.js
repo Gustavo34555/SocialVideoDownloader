@@ -86,8 +86,15 @@ function isYoutube(url) {
     return /youtube\.com|youtu\.be|m\.youtube\.com/i.test(url);
 }
 
-function getYoutubeExtractorArgs() {
-    return 'youtube:player_client=web,android_vr,tv';
+function getYoutubeArgs() {
+    return [
+        '--extractor-args', 'youtube:player_client=tv_downgraded,web,android_vr',
+        '--js-runtimes', 'node',
+        '--remote-components', 'ejs:github',
+        '--force-ipv4',
+        '--retries', '3',
+        '--fragment-retries', '3'
+    ];
 }
 
 // ==========================================
@@ -161,8 +168,7 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
     const args = ['--dump-json', '--no-warnings'];
     if (hasCookies) args.push('--cookies', 'cookies.txt');
     if (isYoutube(targetUrl)) {
-        args.push('--extractor-args', getYoutubeExtractorArgs());
-        args.push('--force-ipv4');
+        args.push(...getYoutubeArgs());
     }
     args.push(targetUrl);
 
@@ -221,8 +227,7 @@ app.get('/api/download', rateLimit, async (req, res) => {
     const args = ['-f', formatArg, '--merge-output-format', 'mp4', '-o', tmpFile, '--no-warnings'];
     if (hasCookies) args.push('--cookies', 'cookies.txt');
     if (isYoutube(targetUrl)) {
-        args.push('--extractor-args', getYoutubeExtractorArgs());
-        args.push('--force-ipv4');
+        args.push(...getYoutubeArgs());
     }
     args.push(targetUrl);
 
