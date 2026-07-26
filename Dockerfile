@@ -8,8 +8,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Descarga de la versión Nightly de yt-dlp (Anti-bloqueos)
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/download/nightly/yt-dlp -o /usr/local/bin/yt-dlp \
+# Descarga de yt-dlp estable (version fija para builds reproducibles)
+# Actualizar esta version periodicamente cuando haya nuevas releases
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 # Crear y establecer el directorio de trabajo
