@@ -7,15 +7,18 @@ const os = require('os');
 const https = require('https');
 const http = require('http');
 const path = require('path');
+const net = require('net');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.set('trust proxy', 1);
 
 const BLOCKED_STATIC = new Set([
     'server.js', 'package.json', 'package-lock.json',
-    'Dockerfile', '.dockerignore', '.gitignore', 'README.md'
+    'Dockerfile', '.dockerignore', '.gitignore', 'README.md',
+    'cookies.txt'
 ]);
 
 app.use((req, res, next) => {
@@ -233,6 +236,20 @@ function isValidUrl(str) {
     } catch (_) { return false; }
 }
 
+function isAllowedStreamUrl(urlStr) {
+    try {
+        const u = new URL(urlStr);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+        const host = u.hostname.toLowerCase();
+        if (host === 'localhost' || host.endsWith('.local')) return false;
+        if (net.isIP(host)) return false;
+        const invidiousHosts = INVIDIOUS_INSTANCES.map(i => new URL(i).hostname.toLowerCase());
+        if (invidiousHosts.includes(host)) return true;
+        if (host === 'googlevideo.com' || host.endsWith('.googlevideo.com')) return true;
+        return false;
+    } catch (_) { return false; }
+}
+
 async function prepareUrl(inputUrl) {
     let url = (inputUrl || '').trim();
     if (!isValidUrl(url)) throw new Error('URL no valida');
@@ -270,7 +287,7 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
             const info = await fetchInvidiousInfo(videoId);
             if (info) {
                 console.log(`[YOUTUBE] Invidious OK: ${info.titulo}`);
-                const videos = info.streams.filter(s => !s.audio).map(s => ({
+                const videos = info.streams.filter(s => s.audio).map(s => ({
                     id: s.url,
                     calidad: s.quality,
                     ext: s.container,
@@ -355,26 +372,14 @@ app.get('/api/download', rateLimit, async (req, res) => {
     const { formatId = 'best', tipo = 'video' } = req.query;
 
     // Si el formatId es una URL de Invidious, descargar directamente
-    if (formatId.startsWith('http')) {
+    if (isAllowedStreamUrl(formatId)) {
         const tmpFile = path.join(os.tmpdir(), `dl_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
         try {
             const proto = formatId.startsWith('https') ? https : http;
             await new Promise((resolve, reject) => {
                 const req2 = proto.get(formatId, {
                     headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://invidious.io/' }
-                }, response => {
-                    if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
-                        const loc = response.headers.location;
-                        if (loc) {
-                            const newReq = (loc.startsWith('https') ? https : http).get(loc, {
-                                headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://invidious.io/' }
-                            }, response2 => pipeToFile(response2, tmpFile, res, tipo, resolve, reject));
-                            newReq.on('error', reject);
-                            return;
-                        }
-                    }
-                    pipeToFile(response, tmpFile, res, tipo, resolve, reject);
-                });
+                }, response => pipeToFile(response, tmpFile, res, tipo, resolve, reject));
                 req2.on('error', reject);
                 req2.setTimeout(60000, () => req2.destroy(new Error('Timeout')));
             });
@@ -386,13 +391,21 @@ app.get('/api/download', rateLimit, async (req, res) => {
     }
 
     // Fallback: yt-dlp
-    const tmpFile = path.join(os.tmpdir(), `dl_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
+    const isAudio = tipo === 'audio';
+    const baseFile = path.join(os.tmpdir(), `dl_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    const tmpFile = isAudio ? `${baseFile}.%(ext)s` : `${baseFile}.mp4`;
 
     let formatArg = formatId === 'best'
-        ? (tipo === 'audio' ? 'bestaudio/best' : 'bestvideo+bestaudio/best')
-        : (tipo === 'video' ? `${formatId}+bestaudio/best` : formatId);
+        ? (isAudio ? 'bestaudio/best' : 'bestvideo+bestaudio/best')
+        : (isAudio ? formatId : `${formatId}+bestaudio/best`);
 
-    const args = ['-f', formatArg, '--merge-output-format', 'mp4', '-o', tmpFile, '--no-warnings'];
+    const args = ['-o', tmpFile, '--no-warnings'];
+    if (isAudio) {
+        args.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
+    } else {
+        args.push('--merge-output-format', 'mp4');
+    }
+    args.push('-f', formatArg);
     if (hasCookies) args.push('--cookies', COOKIES_PATH);
     if (isYoutube(targetUrl)) {
         args.push(...getYoutubeArgs());
@@ -401,12 +414,19 @@ app.get('/api/download', rateLimit, async (req, res) => {
 
     const ytdlp = spawn('yt-dlp', args);
     let tmpCleaned = false;
+    let resolvedFile = null;
 
     const cleanTmp = async () => {
         if (tmpCleaned) return;
         tmpCleaned = true;
-        try { await fsPromises.unlink(tmpFile); } catch (_) {}
+        if (resolvedFile) {
+            try { await fsPromises.unlink(resolvedFile); } catch (_) {}
+        }
     };
+
+    res.on('close', () => {
+        if (!resolvedFile) ytdlp.kill('SIGKILL');
+    });
 
     ytdlp.on('error', async () => {
         await cleanTmp();
@@ -414,22 +434,38 @@ app.get('/api/download', rateLimit, async (req, res) => {
     });
 
     ytdlp.on('close', async code => {
-        if (code !== 0 || !fs.existsSync(tmpFile)) {
+        if (code !== 0) {
             await cleanTmp();
             if (!res.headersSent) return res.status(500).send('Error en la descarga interna de yt-dlp.');
             return;
         }
 
         try {
-            const stat = await fsPromises.stat(tmpFile);
-            const finalExt = tipo === 'audio' ? 'mp3' : 'mp4';
-            const contentType = tipo === 'audio' ? 'audio/mpeg' : 'video/mp4';
+            if (isAudio) {
+                const dir = os.tmpdir();
+                const files = await fsPromises.readdir(dir);
+                const name = path.basename(baseFile);
+                const match = files.filter(f => f.startsWith(name + '.')).sort().pop();
+                resolvedFile = match ? path.join(dir, match) : null;
+            } else if (fs.existsSync(`${baseFile}.mp4`)) {
+                resolvedFile = `${baseFile}.mp4`;
+            }
+
+            if (!resolvedFile) {
+                await cleanTmp();
+                if (!res.headersSent) return res.status(500).send('Error en la descarga interna de yt-dlp.');
+                return;
+            }
+
+            const stat = await fsPromises.stat(resolvedFile);
+            const finalExt = isAudio ? 'mp3' : 'mp4';
+            const contentType = isAudio ? 'audio/mpeg' : 'video/mp4';
 
             res.setHeader('Content-Disposition', `attachment; filename="Descarga_${Date.now()}.${finalExt}"`);
             res.setHeader('Content-Type', contentType);
             res.setHeader('Content-Length', stat.size);
 
-            const stream = fs.createReadStream(tmpFile);
+            const stream = fs.createReadStream(resolvedFile);
             stream.pipe(res);
             stream.on('close', () => cleanTmp());
             stream.on('error', () => cleanTmp());
@@ -443,6 +479,10 @@ app.get('/api/download', rateLimit, async (req, res) => {
 function pipeToFile(response, tmpFile, res, tipo, resolve, reject) {
     if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         const loc = response.headers.location;
+        if (!isAllowedStreamUrl(loc)) {
+            response.resume();
+            return reject(new Error('Redirect no permitido'));
+        }
         const proto = loc.startsWith('https') ? https : http;
         proto.get(loc, { headers: { 'User-Agent': USER_AGENT } }, r => pipeToFile(r, tmpFile, res, tipo, resolve, reject)).on('error', reject);
         return;

@@ -2,5 +2,6 @@ node_modules/
 *.log
 .env
 server.js.backup
+cookies.txt
 tmp/
 *.part

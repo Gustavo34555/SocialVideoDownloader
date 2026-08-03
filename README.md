@@ -1,22 +1,34 @@
 # 🎬 Descargador Universal Pro v6.0
 
-Descargador de videos y audio con **múltiples métodos anti-bot** para YouTube y **extracción directa de HTML** para carruseles de TikTok.
+Descargador de videos y audio impulsado por **yt-dlp**, con fallback **Invidious** para YouTube cuando no hay cookies configuradas.
 
-## ✨ Novedades v6.0
+## ✨ Características
 
-- 🚀 **Cobalt API**: Nuevo método de descarga que evita completamente el bot detection de YouTube
-- 🌐 **Invidious**: Fallback con instancias actualizadas
-- ⚡ **yt-dlp**: Extractor `tv` como primario para datacenters
-- 📸 **TikTok Slideshows**: Extracción directa del HTML (soporta URLs cortas `vt.tiktok.com`)
+- 🚀 **yt-dlp**: Extractores con evasión de bot detection (`tv_downgraded`, `web`, `android_vr`)
+- 🌐 **Invidious**: Fallback sin cookies ni VPN para YouTube
+- 🍪 **Cookies opcionales**: vía env var `YOUTUBE_COOKIES` o archivo `cookies.txt`
 - 🎨 **UI Dinámica**: Animaciones, partículas, efectos hover, progress bar
+- 📺 **Plataformas**: YouTube, TikTok, Instagram, Twitter/X, Facebook, Twitch, SoundCloud, Vimeo, Reddit
 
 ## 🚀 Métodos de descarga para YouTube
 
 | Método | Descripción | Cuándo usar |
 |--------|-------------|-------------|
-| **⚡ Auto** | Intenta yt-dlp → Cobalt → Invidious automáticamente | Por defecto |
-| **🚀 Cobalt** | API de cobalt.tools, sin bot detection | Si Auto falla |
-| **🌐 Invidious** | Instancias públicas de Invidious | Si Cobalt falla |
+| **🌐 Invidious** | Instancias públicas de Invidious (sin cookies) | Sin cookies configuradas |
+| **⚡ yt-dlp** | Extractores anti-bot `tv_downgraded` | Con cookies, o si Invidious falla |
+
+Con cookies configuradas se usa yt-dlp directamente. Sin cookies se intenta Invidious primero y, si falla, yt-dlp como fallback.
+
+## 🍪 Cookies (opcional)
+
+Para descargas de YouTube más estables:
+
+```bash
+export YOUTUBE_COOKIES="$(cat cookies.txt)"
+node server.js
+```
+
+O simplemente coloca un archivo `cookies.txt` en la raíz del proyecto. **Importante**: `cookies.txt` nunca debe subirse al repositorio (ya está en `.gitignore`).
 
 ## 🛠️ Inicio rápido
 
@@ -33,14 +45,3 @@ node server.js
 ```
 
 Abre http://localhost:3000
-
-## 📸 TikTok Slideshows
-
-Soporta:
-- `https://www.tiktok.com/@user/photo/1234567890`
-- `https://vt.tiktok.com/ABC123/` (URL corta)
-- `https://vm.tiktok.com/XYZ456/` (URL corta)
-
-Modos:
-- 🎵 **Audio solo**: MP3 con la música
-- 📸 **Imágenes + Audio (ZIP)**: Todas las imágenes + audio
