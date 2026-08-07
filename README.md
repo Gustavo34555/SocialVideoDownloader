@@ -48,6 +48,15 @@ docker build -t descargador-pro .
 docker run -p 3000:3000 descargador-pro
 ```
 
+La imagen instala vía pip la versión **anclada** de `yt-dlp` (`==2026.07.04`, revisa `Dockerfile`) junto al plugin **`bgutil-ytdlp-pot-provider`** (tokens PO anti bot detection). Si actualizas `yt-dlp`, verifica contra YouTube antes de desplegar:
+
+```bash
+yt-dlp --version
+yt-dlp --dump-json --simulate --js-runtimes node --force-ipv4 \
+  --extractor-args "youtube:player_client=web,android_vr" \
+  "https://www.youtube.com/watch?v=dQw4w9WgXcQ" | jq .title
+```
+
 ### Node.js directo
 ```bash
 npm install
@@ -55,3 +64,11 @@ node server.js
 ```
 
 Abre http://localhost:3000
+
+## 🌍 Despliegue en Render
+
+Render despliega el `Dockerfile` tal cual: `yt-dlp 2026.07.04` + plugin PO Token + Node 20.
+
+1. **`TRUST_PROXY=true`**: Render sirve tu app detrás de su proxy, así que debe respetar `X-Forwarded-For`. Fuera de Render se deja en `false` para evitar spoofing del rate limit.
+2. **Verifica el deploy**: abre `https://TU_APP.onrender.com/health` → debe responder `ytDlp: true`, `ffmpeg: true`.
+3. **Bot detection**: las IPs de Render (datacenter AWS) pueden caer en "Sign in to confirm you're not a bot". La app entonces usa el fallback Invidious automáticamente; si Invidious tampoco responde, setea `YOUTUBE_COOKIES` (sección de arriba).
