@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
 
 # yt-dlp + plugin PO Token via pip (mejor integracion que el binario)
 RUN pip3 install --break-system-packages \
-    yt-dlp \
+    yt-dlp==2026.07.04 \
     bgutil-ytdlp-pot-provider
 
 WORKDIR /app
