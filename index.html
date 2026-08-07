@@ -287,7 +287,7 @@
         function updateQualities() {
             const type = ui.typeSel.value;
             const select = document.getElementById('qualitySelect');
-            select.innerHTML = '<option value="best">Mejor calidad (Automatico)</option>';
+            select.innerHTML = '<option value="best" data-tiene-audio="false">Mejor calidad (Automatico)</option>';
 
             if (!currentData) return;
             const list = type === 'video' ? currentData.formatos.videos : currentData.formatos.audios;
@@ -296,26 +296,49 @@
             list.forEach(f => {
                 if (!uniqueQualities.has(f.calidad)) {
                     uniqueQualities.add(f.calidad);
-                    select.innerHTML += '<option value="' + f.id + '">' + f.calidad + '</option>';
+                    const opt = document.createElement('option');
+                    opt.value = f.id;
+                    opt.dataset.tieneAudio = String(!!f.tieneAudio);
+                    opt.textContent = f.calidad;
+                    select.appendChild(opt);
                 }
             });
         }
 
-        function startDownload() {
+        async function startDownload() {
             const isYT = isYouTubePlatform(currentData);
 
             let formatId = 'best';
             let type = 'video';
+            let tieneAudio = false;
 
             if (isYT) {
-                formatId = document.getElementById('qualitySelect').value;
+                const sel = document.getElementById('qualitySelect');
+                formatId = sel.value;
                 type = ui.typeSel.value;
+                const opt = sel.selectedOptions[0];
+                tieneAudio = opt ? opt.dataset.tieneAudio === 'true' : false;
             }
 
             showToast("Preparando archivo. La descarga iniciara en breve...", false);
 
-            const params = new URLSearchParams({ url: originalUrl, formatId, tipo: type });
-            window.location.href = '/api/download?' + params.toString();
+            const params = new URLSearchParams({ url: originalUrl, formatId, tipo: type, tieneAudio: String(tieneAudio) });
+
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 15000);
+                const preflight = await fetch('/api/download?' + params.toString(), { signal: controller.signal });
+                clearTimeout(timeout);
+                if (!preflight.ok) {
+                    let msg = 'Error en la descarga.';
+                    try { const j = await preflight.json(); msg = j.error || msg; } catch (_) {}
+                    return showToast(msg);
+                }
+                preflight.body && preflight.body.cancel().catch(() => {});
+                window.location.href = '/api/download?' + params.toString();
+            } catch (e) {
+                showToast("Error al conectar con el servidor durante la descarga.");
+            }
         }
 
         ui.input.addEventListener('keypress', e => { if (e.key === 'Enter') analyzeUrl(); });

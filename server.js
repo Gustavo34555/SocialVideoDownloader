@@ -40,14 +40,17 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
 const COOKIES_PATH = path.join(os.tmpdir(), 'yt_cookies.txt');
 let hasCookies = false;
+let hasYtDlp = false;
+let hasFfmpeg = false;
 
 if (process.env.YOUTUBE_COOKIES) {
-    const cookieContent = process.env.YOUTUBE_COOKIES.trim();
-    fs.writeFileSync(COOKIES_PATH, cookieContent);
+const cookieContent = process.env.YOUTUBE_COOKIES.trim();
+fs.writeFileSync(COOKIES_PATH, cookieContent, { mode: 0o600 });
     hasCookies = true;
     console.log(`[SISTEMA] Cookies OK desde YOUTUBE_COOKIES (${cookieContent.split('\n').length} lineas)`);
 } else if (fs.existsSync('cookies.txt')) {
     fs.copyFileSync('cookies.txt', COOKIES_PATH);
+    fs.chmodSync(COOKIES_PATH, 0o600);
     hasCookies = true;
     console.log('[SISTEMA] Cookies OK desde cookies.txt');
 } else {
@@ -55,15 +58,72 @@ if (process.env.YOUTUBE_COOKIES) {
 }
 
 // ==========================================
-// INSTANCIAS INVIDIOUS (fallback para YouTube)
+// DEPENDENCIAS DEL SISTEMA (ffmpeg, yt-dlp)
 // ==========================================
-const INVIDIOUS_INSTANCES = [
-    'https://vid.puffyan.us',
-    'https://invidious.fdn.fr',
-    'https://yewtu.be',
+function checkDependencies(cb = () => {}) {
+    let pending = 2;
+    const done = () => { if (--pending === 0) cb(); };
+    execFile('yt-dlp', ['--version'], { timeout: 8000 }, (err, stdout) => {
+        if (!err) {
+            hasYtDlp = true;
+            console.log(`[SISTEMA] yt-dlp ${stdout.trim()} detectado`);
+        } else {
+            console.error('[SISTEMA] ADVERTENCIA: yt-dlp NO encontrado. Ninguna descarga funcionara. Instala yt-dlp.');
+        }
+        done();
+    });
+    execFile('ffmpeg', ['-version'], { timeout: 8000 }, (err, stdout) => {
+        if (!err) {
+            hasFfmpeg = true;
+            console.log(`[SISTEMA] ${stdout.split('\n')[0]}`);
+        } else {
+            console.error('[SISTEMA] ADVERTENCIA: ffmpeg NO encontrado. Falla el MP3 (audio) y el video por encima de 480p (necesita combinar video+audio). Instala ffmpeg o usa el Dockerfile.');
+        }
+        done();
+    });
+}
+
+function friendlyYtDlpError(stderr) {
+    const s = stderr || '';
+    if (/ffmpeg/i.test(s) && /not installed|not found|no such file|PATH/i.test(s)) {
+        return 'El servidor no tiene ffmpeg instalado. Necesitas ffmpeg para combinar video+audio y convertir a MP3. Instala ffmpeg o despliega con el Dockerfile.';
+    }
+    if (/Sign in to confirm|not a bot|Are you a robot|bot detection/i.test(s)) {
+        return 'YouTube bloqueo la IP del servidor (deteccion de bots). Configura cookies con YOUTUBE_COOKIES en un archivo cookies.txt de tu cuenta, o usa una VPN/proxy residencial.';
+    }
+    if (/Private video|Video is private|Video unavailable|Sign in to watch|age-restricted|age restricted/i.test(s)) {
+        return 'El video es privado, no disponible, restringido por edad o por region.';
+    }
+    if (/Unsupported URL|Unsupported site|Unsupported URL/i.test(s)) {
+        return 'Enlace no soportado por yt-dlp.';
+    }
+    if (/HTTP Error 403|Forbidden/i.test(s)) {
+        return 'Acceso denegado (HTTP 403). El servidor o el video estan bloqueados.';
+    }
+    if (/timed out|Unable to download webpage|Network is unreachable|Could not connect|Name or service not known/i.test(s)) {
+        return 'Error de red en el servidor. Espera unos segundos y reintenta.';
+    }
+    const lastError = s.split('\n').map(l => l.trim()).filter(l => l.startsWith('ERROR:')).pop();
+    return lastError ? lastError.replace(/^ERROR:\s*/, '').slice(0, 300) : 'Error interno de yt-dlp.';
+}
+
+// ==========================================
+// INSTANCIAS INVIDIOUS (fallback para YouTube)
+// Configurable con INVIDIOUS_INSTANCES="url1,url2..."
+// OJO: la mayoria de instancias publicas estan caidas.
+// El camino fiable para YouTube son las cookies + yt-dlp.
+// ==========================================
+const DEFAULT_INVIDIOUS = [
     'https://inv.nadeko.net',
-    'https://invidious.privacyredirect.com'
+    'https://invidious.f5.si'
 ];
+const INVIDIOUS_INSTANCES = (() => {
+    const fromEnv = (process.env.INVIDIOUS_INSTANCES || '')
+        .split(',')
+        .map(s => s.trim().replace(/\/+$/, ''))
+        .filter(s => /^https?:\/\//i.test(s));
+    return fromEnv.length > 0 ? fromEnv : DEFAULT_INVIDIOUS;
+})();
 
 // ==========================================
 // RATE LIMITING
@@ -126,7 +186,7 @@ function extractYoutubeId(url) {
 
 function getYoutubeArgs() {
     return [
-        '--extractor-args', 'youtube:player_client=tv_downgraded,web,android_vr',
+        '--extractor-args', 'youtube:player_client=web,android_vr',
         '--js-runtimes', 'node',
         '--remote-components', 'ejs:github',
         '--force-ipv4',
@@ -160,7 +220,8 @@ function httpGet(url, timeout = 15000) {
 async function fetchInvidiousInfo(videoId) {
     for (const instance of INVIDIOUS_INSTANCES) {
         try {
-            const url = `${instance}/api/v1/videos/${videoId}`;
+            const url = await followRedirect(`${instance}/api/v1/videos/${videoId}`);
+            if (!isAllowedStreamUrl(url)) throw new Error('Redirect a host no permitido');
             const raw = await httpGet(url, 10000);
             const data = JSON.parse(raw);
             if (data.error) continue;
@@ -262,7 +323,14 @@ async function prepareUrl(inputUrl) {
 // ==========================================
 // ENDPOINT DE SALUD
 // ==========================================
-app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+app.get('/health', (req, res) => res.status(200).json({
+    status: 'ok',
+    ytDlp: hasYtDlp,
+    ffmpeg: hasFfmpeg,
+    cookies: hasCookies,
+    youtubeMetodo: hasCookies ? 'yt-dlp con cookies' : 'Invidious (fallback) + yt-dlp sin cookies (puede fallar por bot detection)',
+    invidiousInstancias: INVIDIOUS_INSTANCES.length
+}));
 
 // ==========================================
 // ANALYZE - yt-dlp con fallback Invidious para YouTube
@@ -314,6 +382,9 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
     }
 
     // Fallback: yt-dlp
+    if (!hasYtDlp) {
+        return res.status(500).json({ error: 'yt-dlp no esta instalado en el servidor. Instala yt-dlp o despliega con el Dockerfile.' });
+    }
     const args = ['--dump-json', '--no-warnings'];
     if (hasCookies) args.push('--cookies', COOKIES_PATH);
     if (isYoutube(targetUrl)) {
@@ -324,7 +395,7 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
     execFile('yt-dlp', args, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
         if (error) {
             console.error(stderr);
-            return res.status(500).json({ error: 'Error al analizar. Revisa el enlace o intenta de nuevo.' });
+            return res.status(500).json({ error: friendlyYtDlpError(stderr) });
         }
         try {
             const data = JSON.parse(stdout);
@@ -362,6 +433,7 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
 // DOWNLOAD - con soporte Invidious para YouTube
 // ==========================================
 app.get('/api/download', rateLimit, async (req, res) => {
+    console.log(`[DOWNLOAD] peticion formatId=${req.query.formatId} tipo=${req.query.tipo} tieneAudio=${req.query.tieneAudio}`);
     let targetUrl;
     try {
         targetUrl = await prepareUrl(req.query.url);
@@ -369,7 +441,7 @@ app.get('/api/download', rateLimit, async (req, res) => {
         return res.status(400).json({ error: e.message || 'URL no valida.' });
     }
 
-    const { formatId = 'best', tipo = 'video' } = req.query;
+    const { formatId = 'best', tipo = 'video', tieneAudio = 'false' } = req.query;
 
     // Si el formatId es una URL de Invidious, descargar directamente
     if (isAllowedStreamUrl(formatId)) {
@@ -385,19 +457,35 @@ app.get('/api/download', rateLimit, async (req, res) => {
             });
         } catch (e) {
             console.error('[DOWNLOAD] Error:', e.message);
-            if (!res.headersSent) res.status(500).send('Error al descargar desde Invidious.');
+            if (!res.headersSent) res.status(500).json({ error: 'Error al descargar desde Invidious: ' + e.message });
         }
         return;
     }
 
     // Fallback: yt-dlp
+    if (!hasYtDlp) {
+        return res.status(500).json({ error: 'yt-dlp no esta instalado en el servidor. Instala yt-dlp o despliega con el Dockerfile.' });
+    }
     const isAudio = tipo === 'audio';
     const baseFile = path.join(os.tmpdir(), `dl_${Date.now()}_${Math.random().toString(36).slice(2)}`);
     const tmpFile = isAudio ? `${baseFile}.%(ext)s` : `${baseFile}.mp4`;
 
-    let formatArg = formatId === 'best'
-        ? (isAudio ? 'bestaudio/best' : 'bestvideo+bestaudio/best')
-        : (isAudio ? formatId : `${formatId}+bestaudio/best`);
+    // Si el formato elegido ya trae audio (progresivo, ej. 18/360p),
+    // no hace falta combinarlo con otro stream: evitar merge innecesario
+    // y descargas que fallan cuando no hay ffmpeg.
+    let formatArg;
+    if (formatId === 'best') {
+        formatArg = isAudio ? 'bestaudio/best' : 'bestvideo+bestaudio/best';
+    } else if (isAudio) {
+        formatArg = formatId;
+    } else if (tieneAudio === 'true') {
+        formatArg = `${formatId}/best`;
+    } else {
+        if (!hasFfmpeg) {
+            return res.status(500).json({ error: 'Este formato requiere ffmpeg para combinar video + audio. Instala ffmpeg o elige la opcion "Mejor calidad (Automatico)".' });
+        }
+        formatArg = `${formatId}+bestaudio/best`;
+    }
 
     const args = ['-o', tmpFile, '--no-warnings'];
     if (isAudio) {
@@ -415,6 +503,11 @@ app.get('/api/download', rateLimit, async (req, res) => {
     const ytdlp = spawn('yt-dlp', args);
     let tmpCleaned = false;
     let resolvedFile = null;
+    let stderrChunks = '';
+
+    ytdlp.stderr.on('data', chunk => {
+        stderrChunks = (stderrChunks + chunk.toString()).slice(-16384);
+    });
 
     const cleanTmp = async () => {
         if (tmpCleaned) return;
@@ -428,15 +521,17 @@ app.get('/api/download', rateLimit, async (req, res) => {
         if (!resolvedFile) ytdlp.kill('SIGKILL');
     });
 
-    ytdlp.on('error', async () => {
+    ytdlp.on('error', async err => {
+        console.error('[DOWNLOAD]', err.message);
         await cleanTmp();
-        if (!res.headersSent) res.status(500).send('Error al iniciar la descarga.');
+        if (!res.headersSent) return res.status(500).json({ error: 'No se pudo iniciar yt-dlp. Revisa que este instalado en el servidor.' });
     });
 
     ytdlp.on('close', async code => {
         if (code !== 0) {
+            console.error(stderrChunks);
             await cleanTmp();
-            if (!res.headersSent) return res.status(500).send('Error en la descarga interna de yt-dlp.');
+            if (!res.headersSent) return res.status(500).json({ error: friendlyYtDlpError(stderrChunks) });
             return;
         }
 
@@ -453,7 +548,7 @@ app.get('/api/download', rateLimit, async (req, res) => {
 
             if (!resolvedFile) {
                 await cleanTmp();
-                if (!res.headersSent) return res.status(500).send('Error en la descarga interna de yt-dlp.');
+                if (!res.headersSent) return res.status(500).json({ error: friendlyYtDlpError(stderrChunks || 'No se genero ningun archivo descargable.') });
                 return;
             }
 
@@ -491,15 +586,22 @@ function pipeToFile(response, tmpFile, res, tipo, resolve, reject) {
         response.resume();
         return reject(new Error(`HTTP ${response.statusCode}`));
     }
+    const contentType = (response.headers['content-type'] || '').split(';')[0].toLowerCase();
+    const extFromType = (/audio\/mpeg/.test(contentType) && 'mp3')
+        || (/audio\/(mp4|aac|x-m4a)/.test(contentType) && 'm4a')
+        || (/audio\/webm/.test(contentType) && 'webm')
+        || (/audio\/(ogg|opus)/.test(contentType) && 'ogg')
+        || (/video\/webm/.test(contentType) && 'webm')
+        || (/video\/(mp4|quicktime)/.test(contentType) && 'mp4')
+        || path.extname(tmpFile).replace('.', '') || null;
+    const finalExt = extFromType || (tipo === 'audio' ? 'mp3' : 'mp4');
     const fileStream = fs.createWriteStream(tmpFile);
     response.pipe(fileStream);
     fileStream.on('finish', async () => {
         try {
             const stat = await fsPromises.stat(tmpFile);
-            const finalExt = tipo === 'audio' ? 'mp3' : 'mp4';
-            const contentType = tipo === 'audio' ? 'audio/mpeg' : 'video/mp4';
             res.setHeader('Content-Disposition', `attachment; filename="Descarga_${Date.now()}.${finalExt}"`);
-            res.setHeader('Content-Type', contentType);
+            res.setHeader('Content-Type', contentType || (tipo === 'audio' ? 'audio/mpeg' : 'video/mp4'));
             res.setHeader('Content-Length', stat.size);
             const readStream = fs.createReadStream(tmpFile);
             readStream.pipe(res);
@@ -517,6 +619,7 @@ function pipeToFile(response, tmpFile, res, tipo, resolve, reject) {
 // INICIO DEL SERVIDOR
 // ==========================================
 const PORT = process.env.PORT || 3000;
+checkDependencies();
 const server = app.listen(PORT, '0.0.0.0', () => console.log(`Servidor de Descargas activo -> Puerto ${PORT}`));
 
 const gracefulShutdown = (signal) => {
