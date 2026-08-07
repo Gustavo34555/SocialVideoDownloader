@@ -9,11 +9,14 @@ const http = require('http');
 const path = require('path');
 const net = require('net');
 
+const { extractPublicUrlInfo } = require('./lib/net-security');
+const Semaphore = require('./lib/semaphore');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.set('trust proxy', 1);
+app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
 
 const BLOCKED_STATIC = new Set([
     'server.js', 'package.json', 'package-lock.json',
@@ -153,22 +156,41 @@ setInterval(() => {
 }, RATE_WINDOW * 2);
 
 // ==========================================
-// DETECCION DE PLATAFORMA
+// SSRF GUARD - verifica que la URL objetivo
+// sea de una plataforma permitida y no resuelva
+// a direcciones privadas/internas de red.
 // ==========================================
-function detectPlatform(url) {
-    const u = url.toLowerCase();
-    if (/youtube\.com|youtu\.be|m\.youtube\.com/i.test(u)) return 'youtube';
-    if (/tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com/i.test(u)) return 'tiktok';
-    if (/instagram\.com/i.test(u)) return 'instagram';
-    if (/twitter\.com|x\.com/i.test(u)) return 'twitter';
-    if (/facebook\.com|fb\.watch|web\.facebook\.com/i.test(u)) return 'facebook';
-    if (/twitch\.tv/i.test(u)) return 'twitch';
-    if (/soundcloud\.com/i.test(u)) return 'soundcloud';
-    if (/vimeo\.com/i.test(u)) return 'vimeo';
-    if (/reddit\.com/i.test(u)) return 'reddit';
-    return 'otro';
+const downloadSemaphore = new Semaphore(parseInt(process.env.MAX_CONCURRENT_DOWNLOADS, 10) || 3);
+const activeProcesses = new Set();
+
+async function assertSafeTargetUrl(urlStr) {
+    const info = await extractPublicUrlInfo(urlStr);
+    if (info.private || !info.platform || info.unresolvable) {
+        return { ok: false, message: 'URL no permitida: solo se admiten enlaces publicos de plataformas soportadas.' };
+    }
+    return { ok: true, platform: info.platform };
 }
 
+function sweepTmpFiles() {
+    const dir = os.tmpdir();
+    const cutoff = Date.now() - 60 * 60 * 1000;
+    fs.readdir(dir, (err, files) => {
+        if (err) return;
+        for (const f of files) {
+            if (!f.startsWith('dl_')) continue;
+            const full = path.join(dir, f);
+            fs.stat(full, (serr, st) => {
+                if (serr) return;
+                if (st.mtimeMs < cutoff) fs.unlink(full, () => {});
+            });
+        }
+    });
+}
+setInterval(sweepTmpFiles, 30 * 60 * 1000);
+
+// ==========================================
+// DETECCION DE PLATAFORMA
+// ==========================================
 function isYoutube(url) {
     return /youtube\.com|youtu\.be|m\.youtube\.com/i.test(url);
 }
@@ -345,7 +367,10 @@ app.post('/api/analyze', rateLimit, async (req, res) => {
         return res.status(400).json({ error: e.message || 'URL no valida.' });
     }
 
-    const platform = detectPlatform(targetUrl);
+    const guard = await assertSafeTargetUrl(targetUrl);
+    if (!guard.ok) return res.status(400).json({ error: guard.message });
+
+    const platform = guard.platform;
 
     // Para YouTube: intentar Invidious primero (sin dependencia de cookies)
     if (isYoutube(targetUrl) && !hasCookies) {
@@ -441,6 +466,13 @@ app.get('/api/download', rateLimit, async (req, res) => {
         return res.status(400).json({ error: e.message || 'URL no valida.' });
     }
 
+    const guard = await assertSafeTargetUrl(targetUrl);
+    if (!guard.ok) return res.status(400).json({ error: guard.message });
+
+    const slot = await downloadSemaphore.acquireWithTimeout(30000);
+    if (!slot) return res.status(429).json({ error: 'Demasiadas descargas simultaneas. Espera un momento.' });
+    res.on('close', () => downloadSemaphore.release());
+
     const { formatId = 'best', tipo = 'video', tieneAudio = 'false' } = req.query;
 
     // Si el formatId es una URL de Invidious, descargar directamente
@@ -501,6 +533,8 @@ app.get('/api/download', rateLimit, async (req, res) => {
     args.push(targetUrl);
 
     const ytdlp = spawn('yt-dlp', args);
+    activeProcesses.add(ytdlp);
+    ytdlp.on('close', () => activeProcesses.delete(ytdlp));
     let tmpCleaned = false;
     let resolvedFile = null;
     let stderrChunks = '';
@@ -624,6 +658,10 @@ const server = app.listen(PORT, '0.0.0.0', () => console.log(`Servidor de Descar
 
 const gracefulShutdown = (signal) => {
     console.log(`\n[SISTEMA] ${signal} recibido. Cerrando servidor...`);
+    for (const child of activeProcesses) {
+        try { child.kill('SIGKILL'); } catch (_) {}
+    }
+    sweepTmpFiles();
     server.close(() => {
         console.log('[SISTEMA] Servidor cerrado.');
         process.exit(0);

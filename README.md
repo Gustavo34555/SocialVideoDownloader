@@ -30,6 +30,16 @@ node server.js
 
 O simplemente coloca un archivo `cookies.txt` en la raíz del proyecto. **Importante**: `cookies.txt` nunca debe subirse al repositorio (ya está en `.gitignore`).
 
+## ⚙️ Variables de entorno
+
+| Variable | Default | Descripción |
+|----------|---------|-------------|
+| `PORT` | `3000` | Puerto del servidor |
+| `YOUTUBE_COOKIES` | `-` | Cookies de YouTube (una por línea) |
+| `INVIDIOUS_INSTANCES` | 2 públicas | Instancias de Invidious separadas por coma |
+| `MAX_CONCURRENT_DOWNLOADS` | `3` | Límite de descargas simultáneas |
+| `TRUST_PROXY` | `false` | Ponla en `true` solo si el servidor está detrás de un proxy/reverse (Render, Nginx). En `false` se ignora `X-Forwarded-For`, evitando spoofing del rate limit. |
+
 ## 🛠️ Inicio rápido
 
 ### Docker (Recomendado)
