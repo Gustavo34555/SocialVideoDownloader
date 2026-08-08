@@ -207,6 +207,23 @@
         #analyzeBtn:active:not(:disabled) { transform: scale(0.97); }
         #analyzeBtn:disabled { opacity: 0.65; cursor: not-allowed; box-shadow: none; }
 
+        #quickDownloadBtn {
+            border: 1px solid rgba(16, 185, 129, 0.45);
+            border-radius: 13px;
+            background: rgba(16, 185, 129, 0.1);
+            color: #34d399;
+            font-weight: 700; font-size: 0.95rem;
+            padding: 0 18px; height: 48px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+            transition: all 0.22s ease;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        #quickDownloadBtn:hover:not(:disabled) { background: rgba(16, 185, 129, 0.18); border-color: #10b981; transform: translateY(-1px); }
+        #quickDownloadBtn:active:not(:disabled) { transform: scale(0.97); }
+        #quickDownloadBtn:disabled { opacity: 0.65; cursor: not-allowed; }
+        #quickDownloadBtn svg { width: 18px; height: 18px; flex-shrink: 0; }
+
         .spinner { width: 18px; height: 18px; border: 2.5px solid rgba(255,255,255,0.35); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; display: none; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -310,7 +327,7 @@
             .platform-grid { grid-template-columns: repeat(3, 1fr); }
             .input-group { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
             input { padding: 8px 6px; }
-            #analyzeBtn { height: 52px; }
+            #analyzeBtn, #quickDownloadBtn { height: 52px; }
             .media-top { flex-direction: column; align-items: stretch; }
             .thumbnail { width: 100%; height: 170px; }
             .controls { grid-template-columns: 1fr; }
@@ -391,6 +408,10 @@
                 <button id="analyzeBtn" onclick="analyzeUrl()">
                     <div class="spinner" id="btnSpinner"></div>
                     <span id="btnText">Analizar</span>
+                </button>
+                <button id="quickDownloadBtn" onclick="quickDownload()" title="Descarga directa en la mejor calidad disponible">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>
+                    <span id="quickBtnText">Descargar</span>
                 </button>
             </div>
             <div class="hint">Ej.: m.youtube.com/watch?v=..., vm.tiktok.com/..., /reel/...</div>
@@ -599,6 +620,40 @@
                 window.location.href = '/api/download?' + params.toString();
             } catch (e) {
                 showToast("Error al conectar con el servidor durante la descarga.");
+            }
+        }
+
+        async function quickDownload() {
+            const url = ui.input.value.trim();
+            if (!url) return showToast("Por favor, pega un enlace valido.");
+
+            showToast("Preparando archivo. La descarga iniciara en breve...", false);
+
+            const params = new URLSearchParams({ url, formatId: 'best', tipo: 'video', tieneAudio: 'false' });
+
+            const btn = document.getElementById('quickDownloadBtn');
+            const label = document.getElementById('quickBtnText');
+            btn.disabled = true;
+            label.textContent = 'Descargando...';
+
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 15000);
+                const preflight = await fetch('/api/download?' + params.toString(), { signal: controller.signal });
+                clearTimeout(timeout);
+                if (!preflight.ok) {
+                    let msg = 'Error en la descarga.';
+                    try { const j = await preflight.json(); msg = j.error || msg; } catch (_) {}
+                    showToast(msg);
+                    return;
+                }
+                preflight.body && preflight.body.cancel().catch(() => {});
+                window.location.href = '/api/download?' + params.toString();
+            } catch (e) {
+                showToast("Error al conectar con el servidor durante la descarga.");
+            } finally {
+                btn.disabled = false;
+                label.textContent = 'Descargar';
             }
         }
 
